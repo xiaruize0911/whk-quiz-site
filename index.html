@@ -26,13 +26,17 @@
             <button class="mode-btn active" data-mode="subject-random">同学科随机</button>
             <button class="mode-btn" data-mode="choice-only">仅选择题</button>
             <button class="mode-btn" data-mode="sequential">顺序练习</button>
+            <button class="mode-btn" data-mode="shuffled-cycle">乱序不重复</button>
             <button class="mode-btn" data-mode="wrong-priority">错题优先</button>
             <button class="mode-btn" data-mode="wrong-only">只刷错题</button>
           </div>
         </section>
 
         <section class="sidebar-section">
-          <h2>统计</h2>
+          <div class="section-head">
+            <h2>统计</h2>
+            <button id="reset-subject-stats" class="ghost-btn">重置当前学科</button>
+          </div>
           <div id="stats-grid" class="stats-grid"></div>
         </section>
 

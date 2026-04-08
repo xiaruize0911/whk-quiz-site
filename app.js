@@ -12,6 +12,8 @@ const defaultProgress = {
   wrongBook: [],
   stats: {},
   sequenceCursor: {},
+  shuffledCursor: {},
+  shuffledOrder: {},
   answerDrafts: {},
 };
 
@@ -38,6 +40,7 @@ const revealBtn = document.getElementById("reveal-btn");
 const markCorrectBtn = document.getElementById("mark-correct-btn");
 const markWrongBtn = document.getElementById("mark-wrong-btn");
 const clearWrongbookBtn = document.getElementById("clear-wrongbook");
+const resetSubjectStatsBtn = document.getElementById("reset-subject-stats");
 const modeButtons = Array.from(document.querySelectorAll(".mode-btn"));
 
 let currentQuestion = null;
@@ -84,6 +87,9 @@ function bindEvents() {
     renderWrongbook();
     renderStats();
   });
+  resetSubjectStatsBtn.addEventListener("click", () => {
+    resetCurrentSubjectProgress();
+  });
   modeButtons.forEach((button) => {
     button.addEventListener("click", () => {
       state.mode = button.dataset.mode;
@@ -129,6 +135,39 @@ function getProgressFor(id) {
     state.stats[id] = { seen: 0, correct: 0, wrong: 0, streak: 0, lastSeenAt: 0 };
   }
   return state.stats[id];
+}
+
+function resetCurrentSubjectProgress() {
+  const subject = state.currentSubject;
+  const subjectQuestionIds = new Set(getCurrentSubjectQuestions().map((question) => question.id));
+  if (!subjectQuestionIds.size) return;
+
+  state.wrongBook = state.wrongBook.filter((id) => !subjectQuestionIds.has(id));
+  state.recentQueue = state.recentQueue.filter((id) => !subjectQuestionIds.has(id));
+  state.questionHistory = state.questionHistory.filter((id) => !subjectQuestionIds.has(id));
+  state.historyCursor = state.questionHistory.length - 1;
+
+  Object.keys(state.stats).forEach((id) => {
+    if (subjectQuestionIds.has(id)) {
+      delete state.stats[id];
+    }
+  });
+
+  Object.keys(state.answerDrafts).forEach((id) => {
+    if (subjectQuestionIds.has(id)) {
+      delete state.answerDrafts[id];
+    }
+  });
+
+  delete state.sequenceCursor[subject];
+  delete state.shuffledCursor[subject];
+  delete state.shuffledOrder[subject];
+  state.currentQuestionId = null;
+  persist();
+  openNextQuestion();
+  renderStats();
+  renderWrongbook();
+  renderNavButtons();
 }
 
 function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) {
@@ -298,6 +337,10 @@ function chooseQuestion() {
     return question;
   }
 
+  if (state.mode === "shuffled-cycle") {
+    return chooseShuffledCycleQuestion(subjectQuestions);
+  }
+
   let pool = subjectQuestions;
   if (state.mode === "wrong-only") {
     pool = subjectQuestions.filter((question) => state.wrongBook.includes(question.id));
@@ -464,11 +507,45 @@ function normalizeAnswer(answerText) {
   return (answerText || "").replace(/[^A-Z]/gi, "").toUpperCase();
 }
 
+function chooseShuffledCycleQuestion(subjectQuestions) {
+  const subject = state.currentSubject;
+  const questionMap = new Map(subjectQuestions.map((question) => [question.id, question]));
+  const currentIds = subjectQuestions.map((question) => question.id);
+  const savedOrder = (state.shuffledOrder[subject] || []).filter((id) => questionMap.has(id));
+
+  let order = savedOrder;
+  if (order.length !== currentIds.length) {
+    order = shuffleArray(currentIds);
+    state.shuffledOrder[subject] = order;
+    state.shuffledCursor[subject] = 0;
+  }
+
+  let cursor = state.shuffledCursor[subject] || 0;
+  if (cursor >= order.length) {
+    order = shuffleArray(currentIds);
+    state.shuffledOrder[subject] = order;
+    cursor = 0;
+  }
+
+  const question = questionMap.get(order[cursor]) || subjectQuestions[0] || null;
+  state.shuffledCursor[subject] = cursor + 1;
+  return question;
+}
+
 function filterQuestionsByMode(questions) {
   if (state.mode === "choice-only") {
     return questions.filter((question) => question.kind === "choice");
   }
   return questions;
+}
+
+function shuffleArray(items) {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
 }
 
 function getQuestionOptions(question, optionsHtml) {
