@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>期中刷题本</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <aside class="panel sidebar">
+        <div class="brand">
+          <p class="eyebrow">Midterm Drill Lab</p>
+          <h1>期中刷题本</h1>
+          <p class="muted">按学科随机刷题，自动累计次数、强化错题。</p>
+        </div>
+
+        <section class="sidebar-section">
+          <h2>学科</h2>
+          <div id="subject-tabs" class="subject-tabs"></div>
+        </section>
+
+        <section class="sidebar-section">
+          <h2>模式</h2>
+          <div class="mode-stack">
+            <button class="mode-btn active" data-mode="subject-random">同学科随机</button>
+            <button class="mode-btn" data-mode="choice-only">仅选择题</button>
+            <button class="mode-btn" data-mode="sequential">顺序练习</button>
+            <button class="mode-btn" data-mode="wrong-priority">错题优先</button>
+            <button class="mode-btn" data-mode="wrong-only">只刷错题</button>
+          </div>
+        </section>
+
+        <section class="sidebar-section">
+          <h2>统计</h2>
+          <div id="stats-grid" class="stats-grid"></div>
+        </section>
+
+        <section class="sidebar-section">
+          <div class="section-head">
+            <h2>错题本</h2>
+            <button id="clear-wrongbook" class="ghost-btn">清空</button>
+          </div>
+          <div id="wrongbook-list" class="wrongbook-list"></div>
+        </section>
+      </aside>
+
+      <main class="panel main-panel">
+        <header class="question-toolbar">
+          <div>
+            <p id="question-meta" class="eyebrow">等待载入</p>
+            <h2 id="question-title">正在准备题库</h2>
+          </div>
+          <div class="toolbar-actions">
+            <button id="prev-btn" class="ghost-btn">上一题</button>
+            <button id="next-btn" class="ghost-btn">下一题</button>
+            <button id="reveal-btn" class="primary-btn">显示答案</button>
+          </div>
+        </header>
+
+        <section class="question-card">
+          <div id="question-section" class="question-section"></div>
+          <div id="prompt-content" class="rich-block prompt-block"></div>
+
+          <div id="choice-wrapper" class="choice-wrapper hidden">
+            <div id="options-raw" class="rich-block option-source"></div>
+            <div id="answer-buttons" class="answer-buttons"></div>
+          </div>
+
+          <div id="input-wrapper" class="input-wrapper hidden">
+            <label class="input-label" for="subjective-input">作答区</label>
+            <textarea id="subjective-input" class="subjective-input" placeholder="在这里输入答案，显示答案后自行对照批改。"></textarea>
+          </div>
+
+          <div id="subjective-actions" class="subjective-actions hidden">
+            <button id="mark-correct-btn" class="success-btn">自评正确</button>
+            <button id="mark-wrong-btn" class="danger-btn">自评错误</button>
+          </div>
+
+          <div id="feedback-box" class="feedback-box hidden"></div>
+          <div id="answer-content" class="answer-panel hidden"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./data/questions.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
