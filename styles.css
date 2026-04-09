@@ -233,6 +233,34 @@ button:disabled {
   color: var(--muted);
 }
 
+.keyboard-help {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 18px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.keyboard-help span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.keyboard-help kbd {
+  min-width: 2.1em;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 0.84rem;
+  text-align: center;
+  box-shadow: inset 0 -1px 0 rgba(22, 22, 22, 0.08);
+}
+
 .rich-block {
   line-height: 1.8;
   font-size: 1.04rem;
@@ -458,6 +486,7 @@ button:disabled {
   }
 
   .question-section,
+  .keyboard-help,
   .rich-block,
   .subjective-input {
     font-size: 0.98rem;
@@ -514,5 +543,13 @@ button:disabled {
 
   .rich-block p {
     margin-bottom: 9px;
+  }
+
+  .keyboard-help {
+    gap: 8px;
+  }
+
+  .keyboard-help span {
+    width: 100%;
   }
 }

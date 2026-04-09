@@ -76,6 +76,7 @@ function bindEvents() {
   revealBtn.addEventListener("click", () => revealAnswer(false));
   markCorrectBtn.addEventListener("click", () => selfMark(true));
   markWrongBtn.addEventListener("click", () => selfMark(false));
+  document.addEventListener("keydown", handleGlobalKeydown);
   subjectiveInput.addEventListener("input", () => {
     if (!currentQuestion) return;
     state.answerDrafts[currentQuestion.id] = subjectiveInput.value;
@@ -255,9 +256,83 @@ function renderChoiceButtons(question, labels) {
   labels.forEach((label) => {
     const button = document.createElement("button");
     button.textContent = label;
+    button.dataset.choiceLabel = label;
     button.addEventListener("click", () => gradeChoice(question, label));
     answerButtons.appendChild(button);
   });
+}
+
+function handleGlobalKeydown(event) {
+  if (!currentQuestion) return;
+
+  const target = event.target;
+  const isEditable = isEditableTarget(target);
+  const key = event.key;
+
+  if (isEditable) {
+    if ((key === "y" || key === "Y") && currentQuestion.kind !== "choice") {
+      event.preventDefault();
+      selfMark(true);
+    } else if ((key === "n" || key === "N") && currentQuestion.kind !== "choice") {
+      event.preventDefault();
+      selfMark(false);
+    }
+    return;
+  }
+
+  if (key === "ArrowLeft") {
+    event.preventDefault();
+    goToPreviousQuestion();
+    return;
+  }
+
+  if (key === "ArrowRight") {
+    event.preventDefault();
+    goToNextQuestion();
+    return;
+  }
+
+  if (key === " " || key === "Spacebar") {
+    event.preventDefault();
+    revealAnswer(false);
+    return;
+  }
+
+  if (currentQuestion.kind === "choice") {
+    const mappedLabel = keyToChoiceLabel(key);
+    if (mappedLabel) {
+      event.preventDefault();
+      gradeChoice(currentQuestion, mappedLabel);
+    }
+    return;
+  }
+
+  if (key === "y" || key === "Y") {
+    event.preventDefault();
+    selfMark(true);
+    return;
+  }
+
+  if (key === "n" || key === "N") {
+    event.preventDefault();
+    selfMark(false);
+  }
+}
+
+function isEditableTarget(target) {
+  if (!target || !(target instanceof HTMLElement)) return false;
+  return target.tagName === "TEXTAREA"
+    || target.tagName === "INPUT"
+    || target.isContentEditable;
+}
+
+function keyToChoiceLabel(key) {
+  const normalized = String(key || "").toUpperCase();
+  if (["A", "B", "C", "D"].includes(normalized)) {
+    return normalized;
+  }
+  const numericMap = { "1": "A", "2": "B", "3": "C", "4": "D" };
+  return numericMap[normalized] || "";
 }
 
 function gradeChoice(question, selected) {
