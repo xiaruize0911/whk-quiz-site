@@ -294,7 +294,7 @@ function handleGlobalKeydown(event) {
 
   if (key === " " || key === "Spacebar") {
     event.preventDefault();
-    revealAnswer(false);
+    goToNextQuestion();
     return;
   }
 
