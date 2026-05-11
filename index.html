@@ -56,13 +56,15 @@
             <h2 id="question-title">正在准备题库</h2>
           </div>
           <div class="toolbar-actions">
+            <button id="practice-view-btn" class="ghost-btn active">刷题</button>
+            <button id="ledger-view-btn" class="ghost-btn">题目数据</button>
             <button id="prev-btn" class="ghost-btn">上一题</button>
             <button id="next-btn" class="ghost-btn">下一题</button>
             <button id="reveal-btn" class="primary-btn">显示答案</button>
           </div>
         </header>
 
-        <section class="question-card">
+        <section id="practice-view" class="question-card">
           <div id="question-section" class="question-section"></div>
           <div class="keyboard-help" aria-label="键盘快捷键说明">
             <span><kbd>←</kbd> 上一题</span>
@@ -72,6 +74,7 @@
             <span><kbd>Y</kbd> 自评正确</span>
             <span><kbd>N</kbd> 自评错误</span>
           </div>
+          <div id="material-content" class="material-box hidden"></div>
           <div id="prompt-content" class="rich-block prompt-block"></div>
 
           <div id="choice-wrapper" class="choice-wrapper hidden">
@@ -91,6 +94,17 @@
 
           <div id="feedback-box" class="feedback-box hidden"></div>
           <div id="answer-content" class="answer-panel hidden"></div>
+        </section>
+
+        <section id="ledger-view" class="ledger-panel hidden">
+          <div class="ledger-head">
+            <div>
+              <p class="eyebrow">Question Data</p>
+              <h2>题目数据</h2>
+            </div>
+            <div id="ledger-summary" class="ledger-summary"></div>
+          </div>
+          <div id="question-ledger" class="question-ledger"></div>
         </section>
       </main>
     </div>

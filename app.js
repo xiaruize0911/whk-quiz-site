@@ -15,6 +15,7 @@ const defaultProgress = {
   shuffledCursor: {},
   shuffledOrder: {},
   answerDrafts: {},
+  activeView: "practice",
 };
 
 const state = loadProgress();
@@ -25,6 +26,7 @@ const wrongbookList = document.getElementById("wrongbook-list");
 const questionMeta = document.getElementById("question-meta");
 const questionTitle = document.getElementById("question-title");
 const questionSection = document.getElementById("question-section");
+const materialContent = document.getElementById("material-content");
 const promptContent = document.getElementById("prompt-content");
 const choiceWrapper = document.getElementById("choice-wrapper");
 const optionsRaw = document.getElementById("options-raw");
@@ -42,6 +44,12 @@ const markWrongBtn = document.getElementById("mark-wrong-btn");
 const clearWrongbookBtn = document.getElementById("clear-wrongbook");
 const resetSubjectStatsBtn = document.getElementById("reset-subject-stats");
 const modeButtons = Array.from(document.querySelectorAll(".mode-btn"));
+const practiceView = document.getElementById("practice-view");
+const ledgerView = document.getElementById("ledger-view");
+const practiceViewBtn = document.getElementById("practice-view-btn");
+const ledgerViewBtn = document.getElementById("ledger-view-btn");
+const ledgerSummary = document.getElementById("ledger-summary");
+const questionLedger = document.getElementById("question-ledger");
 
 let currentQuestion = null;
 let answeredThisRound = false;
@@ -64,6 +72,7 @@ function init() {
   renderSubjects();
   renderModeButtons();
   bindEvents();
+  renderActiveView();
   openNextQuestion();
   renderStats();
   renderWrongbook();
@@ -76,6 +85,8 @@ function bindEvents() {
   revealBtn.addEventListener("click", () => revealAnswer(false));
   markCorrectBtn.addEventListener("click", () => selfMark(true));
   markWrongBtn.addEventListener("click", () => selfMark(false));
+  practiceViewBtn.addEventListener("click", () => switchView("practice"));
+  ledgerViewBtn.addEventListener("click", () => switchView("ledger"));
   document.addEventListener("keydown", handleGlobalKeydown);
   subjectiveInput.addEventListener("input", () => {
     if (!currentQuestion) return;
@@ -87,6 +98,7 @@ function bindEvents() {
     persist();
     renderWrongbook();
     renderStats();
+    renderQuestionLedger();
   });
   resetSubjectStatsBtn.addEventListener("click", () => {
     resetCurrentSubjectProgress();
@@ -98,8 +110,29 @@ function bindEvents() {
       renderModeButtons();
       openNextQuestion();
       renderStats();
+      renderQuestionLedger();
     });
   });
+}
+
+function switchView(view) {
+  state.activeView = view;
+  persist();
+  renderActiveView();
+}
+
+function renderActiveView() {
+  const isLedger = state.activeView === "ledger";
+  practiceView.classList.toggle("hidden", isLedger);
+  ledgerView.classList.toggle("hidden", !isLedger);
+  practiceViewBtn.classList.toggle("active", !isLedger);
+  ledgerViewBtn.classList.toggle("active", isLedger);
+  prevBtn.classList.toggle("hidden", isLedger);
+  nextBtn.classList.toggle("hidden", isLedger);
+  revealBtn.classList.toggle("hidden", isLedger);
+  if (isLedger) {
+    renderQuestionLedger();
+  }
 }
 
 function renderSubjects() {
@@ -114,6 +147,7 @@ function renderSubjects() {
       renderSubjects();
       openNextQuestion();
       renderStats();
+      renderQuestionLedger();
       renderWrongbook();
     });
     subjectTabs.appendChild(button);
@@ -184,6 +218,8 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
     subjectiveActions.classList.add("hidden");
     feedbackBox.classList.add("hidden");
     answerContent.classList.add("hidden");
+    materialContent.classList.add("hidden");
+    materialContent.innerHTML = "";
     renderNavButtons();
     return;
   }
@@ -215,7 +251,12 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
   const choiceContent = currentQuestion.kind === "choice"
     ? splitChoiceContent(currentQuestion)
     : { promptHtml: currentQuestion.promptHtml || "", optionsHtml: currentQuestion.optionsHtml || "" };
-  promptContent.innerHTML = choiceContent.promptHtml || "<p>题面缺失</p>";
+  const materialSplit = splitMaterialFromPrompt(choiceContent.promptHtml || "");
+  materialContent.innerHTML = materialSplit.materialHtml
+    ? `<p class="material-label">材料</p><div class="rich-block">${materialSplit.materialHtml}</div>`
+    : "";
+  materialContent.classList.toggle("hidden", !materialSplit.materialHtml);
+  promptContent.innerHTML = materialSplit.promptHtml || "<p>题面缺失</p>";
   answerContent.innerHTML = buildAnswerPanel(currentQuestion);
   answerContent.classList.add("hidden");
   subjectiveInput.value = state.answerDrafts[currentQuestion.id] || "";
@@ -235,6 +276,7 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
   }
 
   renderStats();
+  renderQuestionLedger();
   renderWrongbook();
   renderNavButtons();
 }
@@ -387,6 +429,7 @@ function updateProgress(questionId, isCorrect) {
   }
   persist();
   renderStats();
+  renderQuestionLedger();
   renderWrongbook();
 }
 
@@ -490,6 +533,71 @@ function renderStats() {
   ].join("");
 }
 
+function renderQuestionLedger() {
+  if (!questionLedger || !ledgerSummary) return;
+  const questions = getCurrentSubjectQuestions();
+  const answered = questions.filter((question) => {
+    const progress = getProgressFor(question.id);
+    return progress.correct + progress.wrong > 0;
+  }).length;
+  const wrongCount = questions.filter((question) => state.wrongBook.includes(question.id)).length;
+  const totalAttempts = questions.reduce((sum, question) => {
+    const progress = getProgressFor(question.id);
+    return sum + progress.correct + progress.wrong;
+  }, 0);
+
+  ledgerSummary.innerHTML = [
+    `<span>题目 ${questions.length}</span>`,
+    `<span>已答 ${answered}</span>`,
+    `<span>错题 ${wrongCount}</span>`,
+    `<span>作答 ${totalAttempts}</span>`,
+  ].join("");
+
+  questionLedger.innerHTML = "";
+  questions.forEach((question, index) => {
+    const progress = getProgressFor(question.id);
+    const attempts = progress.correct + progress.wrong;
+    const accuracy = attempts ? Math.round((progress.correct / attempts) * 100) : 0;
+    const row = document.createElement("article");
+    row.className = `ledger-row ${question.id === currentQuestion?.id ? "current" : ""}`;
+    const preview = stripHtml(question.promptHtml).slice(0, 88) || question.label;
+    row.innerHTML = `
+      <div class="ledger-index">${index + 1}</div>
+      <div class="ledger-main">
+        <div class="ledger-title">
+          <strong>${question.label}</strong>
+          <span>${question.kind === "choice" ? "选择题" : "主观题"}</span>
+          <span>${question.section || "未标注"}</span>
+        </div>
+        <p>${preview}${preview.length >= 88 ? "..." : ""}</p>
+      </div>
+      <div class="ledger-metrics">
+        <span>见 ${progress.seen}</span>
+        <span>对 ${progress.correct}</span>
+        <span>错 ${progress.wrong}</span>
+        <span>${accuracy}%</span>
+        <span>${formatLastSeen(progress.lastSeenAt)}</span>
+      </div>
+    `;
+    const jumpBtn = document.createElement("button");
+    jumpBtn.className = "primary-btn";
+    jumpBtn.textContent = "跳到此题";
+    jumpBtn.addEventListener("click", () => {
+      switchView("practice");
+      openNextQuestion(question);
+    });
+    row.appendChild(jumpBtn);
+    questionLedger.appendChild(row);
+  });
+}
+
+function formatLastSeen(value) {
+  if (!value) return "未练";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "未练";
+  return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 function renderNavButtons() {
   prevBtn.disabled = state.historyCursor <= 0;
   nextBtn.disabled = !canGoNext();
@@ -569,6 +677,7 @@ function renderWrongbook() {
       state.wrongBook = state.wrongBook.filter((id) => id !== question.id);
       persist();
       renderWrongbook();
+      renderQuestionLedger();
     });
 
     actionBar.appendChild(jumpBtn);
@@ -638,7 +747,7 @@ function extractOptionBlocks(optionsHtml) {
   return Array.from(wrapper.children).reduce((result, node) => {
     const html = node.outerHTML || "";
     const text = stripHtml(html);
-    const match = text.match(/^\s*([A-D])[\.．、]/);
+    const match = text.match(/^\s*([A-D])\s*[\.．、]/);
     if (match) {
       result[match[1]] = html;
     }
@@ -720,6 +829,41 @@ function splitChoiceParagraph(blockHtml) {
 
 function unwrapSpanTags(html) {
   return (html || "").replace(/<\/?span[^>]*>/g, "");
+}
+
+function splitMaterialFromPrompt(promptHtml) {
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = promptHtml || "";
+  const blocks = Array.from(wrapper.children);
+  if (blocks.length < 2) {
+    return { materialHtml: "", promptHtml };
+  }
+
+  const questionIndex = blocks.findIndex((node, index) => {
+    if (index === 0) return false;
+    const text = stripHtml(node.outerHTML || "");
+    return /^\s*(?:[\(（]\s*)?\d+\s*[\.．、]/.test(text)
+      || /^(What|Which|Why|How|Who|When|Where)\b/i.test(text);
+  });
+  if (questionIndex > 0) {
+    const materialHtml = blocks.slice(0, questionIndex).map((node) => node.outerHTML).join("");
+    const questionHtml = blocks.slice(questionIndex).map((node) => node.outerHTML).join("");
+    if (stripHtml(materialHtml).length >= 120) {
+      return { materialHtml, promptHtml: questionHtml };
+    }
+  }
+
+  const firstText = stripHtml(blocks[0].outerHTML || "");
+  const hasMaterialLead = firstText.length >= 80
+    && /(材料|阅读|回答下列问题|请回答|如图|下图|根据下列|据图)/.test(firstText);
+  if (hasMaterialLead) {
+    return {
+      materialHtml: blocks[0].outerHTML,
+      promptHtml: blocks.slice(1).map((node) => node.outerHTML).join("") || promptHtml,
+    };
+  }
+
+  return { materialHtml: "", promptHtml };
 }
 
 function hasVisibleContent(html) {
