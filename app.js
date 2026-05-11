@@ -1,6 +1,6 @@
 const questionBank = window.__QUESTION_BANK__ || { subjects: {}, allQuestions: [] };
 
-const STORAGE_KEY = "midterm-drill-lab-v1";
+const STORAGE_KEY = "final-drill-lab-v1";
 
 const defaultProgress = {
   mode: "subject-random",
