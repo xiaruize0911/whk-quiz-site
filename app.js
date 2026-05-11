@@ -50,6 +50,9 @@ const practiceViewBtn = document.getElementById("practice-view-btn");
 const ledgerViewBtn = document.getElementById("ledger-view-btn");
 const ledgerSummary = document.getElementById("ledger-summary");
 const questionLedger = document.getElementById("question-ledger");
+const imageZoom = document.getElementById("image-zoom");
+const imageZoomImg = document.getElementById("image-zoom-img");
+const imageZoomClose = document.getElementById("image-zoom-close");
 
 let currentQuestion = null;
 let answeredThisRound = false;
@@ -87,7 +90,13 @@ function bindEvents() {
   markWrongBtn.addEventListener("click", () => selfMark(false));
   practiceViewBtn.addEventListener("click", () => switchView("practice"));
   ledgerViewBtn.addEventListener("click", () => switchView("ledger"));
+  imageZoom.addEventListener("click", closeImageZoom);
+  imageZoomClose.addEventListener("click", closeImageZoom);
+  imageZoomImg.addEventListener("click", (event) => event.stopPropagation());
   document.addEventListener("keydown", handleGlobalKeydown);
+  [promptContent, optionsRaw, answerContent, materialContent].forEach((container) => {
+    container.addEventListener("click", handleRichContentClick);
+  });
   subjectiveInput.addEventListener("input", () => {
     if (!currentQuestion) return;
     state.answerDrafts[currentQuestion.id] = subjectiveInput.value;
@@ -250,7 +259,10 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
   questionSection.textContent = currentQuestion.section || "未标注题型";
   const choiceContent = currentQuestion.kind === "choice"
     ? splitChoiceContent(currentQuestion)
-    : { promptHtml: currentQuestion.promptHtml || "", optionsHtml: currentQuestion.optionsHtml || "" };
+    : {
+        promptHtml: `${currentQuestion.promptHtml || ""}${currentQuestion.optionsHtml || ""}`,
+        optionsHtml: "",
+      };
   const materialSplit = splitMaterialFromPrompt(choiceContent.promptHtml || "");
   materialContent.innerHTML = materialSplit.materialHtml
     ? `<p class="material-label">材料</p><div class="rich-block">${materialSplit.materialHtml}</div>`
@@ -325,6 +337,12 @@ function handleGlobalKeydown(event) {
   if (key === "ArrowLeft") {
     event.preventDefault();
     goToPreviousQuestion();
+    return;
+  }
+
+  if (key === "Escape" && !imageZoom.classList.contains("hidden")) {
+    event.preventDefault();
+    closeImageZoom();
     return;
   }
 
@@ -735,10 +753,23 @@ function shuffleArray(items) {
 function getQuestionOptions(question, optionsHtml) {
   const labels = question.optionLabels?.length ? question.optionLabels : ["A", "B", "C", "D"];
   const blocks = extractOptionBlocks(optionsHtml || "");
-  return labels.reduce((result, label) => {
+  const orderedLabels = mergeOptionLabels(labels, Object.keys(blocks));
+  return orderedLabels.reduce((result, label) => {
     result[label] = blocks[label] || `<p>${label}.</p>`;
     return result;
   }, {});
+}
+
+function mergeOptionLabels(primaryLabels, parsedLabels) {
+  const seen = new Set();
+  return [...primaryLabels, ...parsedLabels]
+    .filter((label) => ["A", "B", "C", "D", "E", "F"].includes(label))
+    .filter((label) => {
+      if (seen.has(label)) return false;
+      seen.add(label);
+      return true;
+    })
+    .sort((a, b) => a.localeCompare(b));
 }
 
 function extractOptionBlocks(optionsHtml) {
@@ -781,11 +812,28 @@ function splitChoiceContent(question) {
     });
   });
 
-  const optionHtml = ["A", "B", "C", "D"].map((label) => optionBlocks[label]).filter(Boolean).join("");
+  const optionHtml = ["A", "B", "C", "D", "E", "F"].map((label) => optionBlocks[label]).filter(Boolean).join("");
   return {
     promptHtml: promptBlocks.join("") || question.promptHtml || "",
     optionsHtml: optionHtml || question.optionsHtml || "",
   };
+}
+
+function handleRichContentClick(event) {
+  const image = event.target?.closest?.("img");
+  if (!image) return;
+  openImageZoom(image);
+}
+
+function openImageZoom(image) {
+  imageZoomImg.src = image.currentSrc || image.src;
+  imageZoomImg.alt = image.alt || "";
+  imageZoom.classList.remove("hidden");
+}
+
+function closeImageZoom() {
+  imageZoom.classList.add("hidden");
+  imageZoomImg.removeAttribute("src");
 }
 
 function splitChoiceParagraph(blockHtml) {

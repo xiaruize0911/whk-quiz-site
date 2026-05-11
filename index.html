@@ -56,11 +56,15 @@
             <h2 id="question-title">正在准备题库</h2>
           </div>
           <div class="toolbar-actions">
-            <button id="practice-view-btn" class="ghost-btn active">刷题</button>
-            <button id="ledger-view-btn" class="ghost-btn">题目数据</button>
-            <button id="prev-btn" class="ghost-btn">上一题</button>
-            <button id="next-btn" class="ghost-btn">下一题</button>
-            <button id="reveal-btn" class="primary-btn">显示答案</button>
+            <div class="view-switch" aria-label="页面切换">
+              <button id="practice-view-btn" class="view-btn active">刷题</button>
+              <button id="ledger-view-btn" class="view-btn">题目数据</button>
+            </div>
+            <div class="question-actions" aria-label="题目操作">
+              <button id="prev-btn" class="ghost-btn">上一题</button>
+              <button id="next-btn" class="ghost-btn">下一题</button>
+              <button id="reveal-btn" class="primary-btn">显示答案</button>
+            </div>
           </div>
         </header>
 
@@ -107,6 +111,11 @@
           <div id="question-ledger" class="question-ledger"></div>
         </section>
       </main>
+    </div>
+
+    <div id="image-zoom" class="image-zoom hidden" role="dialog" aria-modal="true" aria-label="图片预览">
+      <button id="image-zoom-close" class="image-zoom-close" aria-label="关闭图片预览">×</button>
+      <img id="image-zoom-img" alt="" />
     </div>
 
     <script src="./data/questions.js"></script>
