@@ -418,6 +418,46 @@ button:disabled {
   border-radius: 0;
 }
 
+.rich-block img.formula-img {
+  max-height: 2.4em;
+  min-height: 1.05em;
+  width: auto;
+  padding: 0 0.08em;
+  background: #ffffff;
+  vertical-align: -0.35em;
+}
+
+.math-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0.8em;
+  margin: 0 0.08em;
+  font-family: "Times New Roman", "STIX Two Math", serif;
+  line-height: 1.1;
+  vertical-align: middle;
+}
+
+.math-frac {
+  flex-direction: column;
+  font-size: 0.95em;
+}
+
+.math-frac span:first-child {
+  display: block;
+  padding: 0 0.18em 0.08em;
+  border-bottom: 1px solid currentColor;
+}
+
+.math-frac span:last-child {
+  display: block;
+  padding: 0.08em 0.18em 0;
+}
+
+.math-root {
+  font-family: "Times New Roman", "STIX Two Math", serif;
+}
+
 .rich-block p:has(> img:only-child),
 .rich-block p:has(> span:only-child > img:only-child) {
   text-align: center;
@@ -475,16 +515,19 @@ button:disabled {
 
 .cloze-blank {
   display: inline-block;
-  padding: 0 0.2em;
-  margin: 0 0.08em;
-  border-radius: 0.35em;
+  padding: 0.04em 0.55em;
+  margin: 0 0.14em;
+  border-radius: 999px;
+  border: 1px solid rgba(31, 95, 191, 0.22);
   background: rgba(31, 95, 191, 0.08);
+  color: var(--accent-strong);
   font-weight: 700;
 }
 
 .cloze-blank.current {
-  background: rgba(31, 95, 191, 0.2);
-  outline: 1px solid rgba(31, 95, 191, 0.28);
+  background: rgba(31, 95, 191, 0.18);
+  border-color: rgba(31, 95, 191, 0.42);
+  outline: 2px solid rgba(31, 95, 191, 0.16);
 }
 
 .input-label {

@@ -264,12 +264,16 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
         optionsHtml: "",
       };
   const materialSplit = splitMaterialFromPrompt(choiceContent.promptHtml || "");
-  materialContent.innerHTML = materialSplit.materialHtml
-    ? `<p class="material-label">材料</p><div class="rich-block">${materialSplit.materialHtml}</div>`
+  const materialHtml = annotateClozeBlanks(materialSplit.materialHtml, currentQuestion);
+  materialContent.innerHTML = materialHtml
+    ? `<p class="material-label">材料</p><div class="rich-block">${materialHtml}</div>`
     : "";
   materialContent.classList.toggle("hidden", !materialSplit.materialHtml);
   promptContent.innerHTML = materialSplit.promptHtml || "<p>题面缺失</p>";
   answerContent.innerHTML = buildAnswerPanel(currentQuestion);
+  enhanceRichContent(materialContent);
+  enhanceRichContent(promptContent);
+  enhanceRichContent(answerContent);
   answerContent.classList.add("hidden");
   subjectiveInput.value = state.answerDrafts[currentQuestion.id] || "";
   feedbackBox.classList.add("hidden");
@@ -302,6 +306,7 @@ function renderChoiceQuestion(question, optionsHtml) {
   const optionMap = getQuestionOptions(question, optionsHtml);
   const order = Object.keys(optionMap);
   optionsRaw.innerHTML = order.map((label) => optionMap[label]).filter(Boolean).join("");
+  enhanceRichContent(optionsRaw);
   renderChoiceButtons(question, order);
 }
 
@@ -877,6 +882,101 @@ function splitChoiceParagraph(blockHtml) {
 
 function unwrapSpanTags(html) {
   return (html || "").replace(/<\/?span[^>]*>/g, "");
+}
+
+function enhanceRichContent(container) {
+  renderInlineLatex(container);
+  markFormulaImages(container);
+}
+
+function renderInlineLatex(container) {
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const textNodes = [];
+  while (walker.nextNode()) {
+    if (walker.currentNode.nodeValue.includes("$")) {
+      textNodes.push(walker.currentNode);
+    }
+  }
+  textNodes.forEach((node) => {
+    const parts = node.nodeValue.split(/(\$[^$]+\$)/g).filter(Boolean);
+    if (parts.length <= 1) return;
+    const fragment = document.createDocumentFragment();
+    parts.forEach((part) => {
+      if (part.startsWith("$") && part.endsWith("$")) {
+        fragment.appendChild(latexToElement(part.slice(1, -1)));
+      } else {
+        fragment.appendChild(document.createTextNode(part));
+      }
+    });
+    node.parentNode.replaceChild(fragment, node);
+  });
+}
+
+function latexToElement(source) {
+  const span = document.createElement("span");
+  span.className = "math-inline";
+  const frac = source.match(/^\\frac\{([^{}]+)\}\{([^{}]+)\}$/);
+  if (frac) {
+    span.classList.add("math-frac");
+    span.innerHTML = `<span>${escapeHtml(frac[1])}</span><span>${escapeHtml(frac[2])}</span>`;
+    return span;
+  }
+  const sqrt = source.match(/^\\sqrt\{([^{}]+)\}$/);
+  if (sqrt) {
+    span.classList.add("math-root");
+    span.textContent = `√${sqrt[1]}`;
+    return span;
+  }
+  span.textContent = source;
+  return span;
+}
+
+function markFormulaImages(container) {
+  container.querySelectorAll("img").forEach((image) => {
+    const width = image.naturalWidth || Number(image.getAttribute("width")) || 0;
+    const height = image.naturalHeight || Number(image.getAttribute("height")) || 0;
+    if ((width && width <= 90) || (height && height <= 36)) {
+      image.classList.add("formula-img");
+    }
+  });
+}
+
+function annotateClozeBlanks(html, question) {
+  if (!html || question.subject !== "英语" || !/完形/.test(question.section || "")) {
+    return html || "";
+  }
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = html;
+  const currentBlank = Number(question.label || question.number);
+  const walker = document.createTreeWalker(wrapper, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach((node) => {
+    const parts = node.nodeValue.split(/(\b(?:[1-9]|1[0-9]|20)\b)/g).filter(Boolean);
+    if (parts.length <= 1) return;
+    const fragment = document.createDocumentFragment();
+    parts.forEach((part) => {
+      if (/^(?:[1-9]|1[0-9]|20)$/.test(part)) {
+        const blank = document.createElement("span");
+        const blankNumber = Number(part);
+        blank.className = `cloze-blank${blankNumber === currentBlank ? " current" : ""}`;
+        blank.textContent = `第 ${blankNumber} 空`;
+        fragment.appendChild(blank);
+      } else {
+        fragment.appendChild(document.createTextNode(part));
+      }
+    });
+    node.parentNode.replaceChild(fragment, node);
+  });
+  return wrapper.innerHTML;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 function splitMaterialFromPrompt(promptHtml) {
