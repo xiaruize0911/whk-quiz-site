@@ -10,11 +10,11 @@
   "subjects": [
     {
       "subject": "语文",
-      "count": 28
+      "count": 45
     },
     {
       "subject": "英语",
-      "count": 92
+      "count": 128
     },
     {
       "subject": "数学",
@@ -22,15 +22,15 @@
     },
     {
       "subject": "物理",
-      "count": 98
+      "count": 100
     },
     {
       "subject": "化学",
-      "count": 102
+      "count": 96
     },
     {
       "subject": "生物",
-      "count": 232
+      "count": 225
     }
   ]
 }

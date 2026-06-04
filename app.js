@@ -388,10 +388,10 @@ function isEditableTarget(target) {
 
 function keyToChoiceLabel(key) {
   const normalized = String(key || "").toUpperCase();
-  if (["A", "B", "C", "D"].includes(normalized)) {
+  if (["A", "B", "C", "D", "E", "F", "G"].includes(normalized)) {
     return normalized;
   }
-  const numericMap = { "1": "A", "2": "B", "3": "C", "4": "D" };
+  const numericMap = { "1": "A", "2": "B", "3": "C", "4": "D", "5": "E", "6": "F", "7": "G" };
   return numericMap[normalized] || "";
 }
 
@@ -763,7 +763,7 @@ function getQuestionOptions(question, optionsHtml) {
 function mergeOptionLabels(primaryLabels, parsedLabels) {
   const seen = new Set();
   return [...primaryLabels, ...parsedLabels]
-    .filter((label) => ["A", "B", "C", "D", "E", "F"].includes(label))
+    .filter((label) => ["A", "B", "C", "D", "E", "F", "G"].includes(label))
     .filter((label) => {
       if (seen.has(label)) return false;
       seen.add(label);
@@ -778,7 +778,7 @@ function extractOptionBlocks(optionsHtml) {
   return Array.from(wrapper.children).reduce((result, node) => {
     const html = node.outerHTML || "";
     const text = stripHtml(html);
-    const match = text.match(/^\s*([A-D])\s*[\.．、]/);
+    const match = text.match(/^\s*([A-G])\s*[\.．、]/);
     if (match) {
       result[match[1]] = html;
     }
@@ -812,7 +812,7 @@ function splitChoiceContent(question) {
     });
   });
 
-  const optionHtml = ["A", "B", "C", "D", "E", "F"].map((label) => optionBlocks[label]).filter(Boolean).join("");
+  const optionHtml = ["A", "B", "C", "D", "E", "F", "G"].map((label) => optionBlocks[label]).filter(Boolean).join("");
   return {
     promptHtml: promptBlocks.join("") || question.promptHtml || "",
     optionsHtml: optionHtml || question.optionsHtml || "",
@@ -845,7 +845,7 @@ function splitChoiceParagraph(blockHtml) {
   }
 
   const innerHtml = unwrapSpanTags(paragraph.innerHTML || "");
-  const matches = Array.from(innerHtml.matchAll(/(^|[\s>])([A-D])\s*[\.．、]/g));
+  const matches = Array.from(innerHtml.matchAll(/(^|[\s>])([A-G])\s*[\.．、]/g));
   if (!matches.length) {
     return { prefixHtml: blockHtml, options: [] };
   }
