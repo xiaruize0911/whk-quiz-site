@@ -458,6 +458,24 @@ button:disabled {
   font-family: "Times New Roman", "STIX Two Math", serif;
 }
 
+.math-vector {
+  position: relative;
+  padding-top: 0.32em;
+  font-style: italic;
+}
+
+.math-vector::before {
+  content: "→";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -0.2em;
+  font-size: 0.78em;
+  line-height: 1;
+  text-align: center;
+  font-style: normal;
+}
+
 .rich-block p:has(> img:only-child),
 .rich-block p:has(> span:only-child > img:only-child) {
   text-align: center;

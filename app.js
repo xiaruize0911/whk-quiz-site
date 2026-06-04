@@ -915,10 +915,10 @@ function renderInlineLatex(container) {
 function latexToElement(source) {
   const span = document.createElement("span");
   span.className = "math-inline";
-  const frac = source.match(/^\\frac\{([^{}]+)\}\{([^{}]+)\}$/);
+  const frac = source.match(/^\\frac\{(.+)\}\{(.+)\}$/);
   if (frac) {
     span.classList.add("math-frac");
-    span.innerHTML = `<span>${escapeHtml(frac[1])}</span><span>${escapeHtml(frac[2])}</span>`;
+    span.innerHTML = `<span>${escapeHtml(formatMathText(frac[1]))}</span><span>${escapeHtml(formatMathText(frac[2]))}</span>`;
     return span;
   }
   const sqrt = source.match(/^\\sqrt\{([^{}]+)\}$/);
@@ -927,8 +927,18 @@ function latexToElement(source) {
     span.textContent = `√${sqrt[1]}`;
     return span;
   }
+  const vector = source.match(/^\\overrightarrow\{([^{}]+)\}$/);
+  if (vector) {
+    span.classList.add("math-vector");
+    span.textContent = vector[1];
+    return span;
+  }
   span.textContent = source;
   return span;
+}
+
+function formatMathText(source) {
+  return String(source).replace(/\\sqrt\{([^{}]+)\}/g, "√$1");
 }
 
 function markFormulaImages(container) {
