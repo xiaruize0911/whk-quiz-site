@@ -714,10 +714,92 @@ function truncateText(value, maxLength) {
 }
 
 function formatAiExplanation(content) {
-  return escapeHtml(content)
-    .split(/\n{2,}/)
-    .map((paragraph) => `<p>${paragraph.replace(/\n/g, "<br/>")}</p>`)
-    .join("");
+  const lines = String(content || "").replace(/\r\n/g, "\n").split("\n");
+  const html = [];
+  let paragraph = [];
+  let listItems = [];
+  let codeLines = [];
+  let inCodeBlock = false;
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    html.push(`<p>${renderInlineMarkdown(paragraph.join("\n")).replace(/\n/g, "<br/>")}</p>`);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (!listItems.length) return;
+    html.push(`<ul>${listItems.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ul>`);
+    listItems = [];
+  };
+  const flushCode = () => {
+    html.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+    codeLines = [];
+  };
+
+  lines.forEach((line) => {
+    if (/^\s*```/.test(line)) {
+      if (inCodeBlock) {
+        flushCode();
+        inCodeBlock = false;
+      } else {
+        flushParagraph();
+        flushList();
+        inCodeBlock = true;
+      }
+      return;
+    }
+    if (inCodeBlock) {
+      codeLines.push(line);
+      return;
+    }
+
+    const heading = line.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = Math.min(heading[1].length + 2, 5);
+      html.push(`<h${level}>${renderInlineMarkdown(heading[2].trim())}</h${level}>`);
+      return;
+    }
+
+    const list = line.match(/^\s*(?:[-*+]|\d+[.)])\s+(.+)$/);
+    if (list) {
+      flushParagraph();
+      listItems.push(list[1].trim());
+      return;
+    }
+
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+    paragraph.push(line);
+  });
+
+  if (inCodeBlock) flushCode();
+  flushParagraph();
+  flushList();
+  return html.join("");
+}
+
+function renderInlineMarkdown(value) {
+  let html = escapeHtml(value);
+  const codeSpans = [];
+  html = html.replace(/`([^`]+)`/g, (_, code) => {
+    const token = `@@CODE${codeSpans.length}@@`;
+    codeSpans.push(`<code>${code}</code>`);
+    return token;
+  });
+  html = html
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/__([^_]+)__/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+    .replace(/_([^_]+)_/g, "<em>$1</em>");
+  codeSpans.forEach((code, index) => {
+    html = html.replace(`@@CODE${index}@@`, code);
+  });
+  return html;
 }
 
 function chooseQuestion() {
