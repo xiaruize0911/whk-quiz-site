@@ -2,9 +2,11 @@ const questionBank = window.__QUESTION_BANK__ || { subjects: {}, allQuestions: [
 
 const STORAGE_KEY = "final-drill-lab-v1";
 const API_KEY_STORAGE_KEY = "final-drill-lab-deepseek-api-key";
-const AI_EXPLAIN_ENDPOINT = window.location.protocol === "file:"
+const LOCAL_AI_EXPLAIN_ENDPOINT = window.location.protocol === "file:"
   ? "http://127.0.0.1:8767/api/explain"
   : "/api/explain";
+const DEEPSEEK_CHAT_ENDPOINT = "https://api.deepseek.com/chat/completions";
+const DEEPSEEK_MODEL = "deepseek-v4-pro";
 
 const defaultProgress = {
   mode: "subject-random",
@@ -546,18 +548,7 @@ async function requestAiExplanation() {
   aiExplanationContent.innerHTML = "<p class=\"muted\">正在生成详细解析。</p>";
 
   try {
-    const response = await fetch(AI_EXPLAIN_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        apiKey,
-        question: buildAiQuestionPayload(currentQuestion),
-      }),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(payload.error || "AI 解析请求失败。");
-    }
+    const payload = await fetchAiExplanation(buildAiQuestionPayload(currentQuestion), apiKey);
     state.aiExplanations[currentQuestion.id] = {
       content: payload.explanation || "",
       model: payload.model || "",
@@ -567,13 +558,82 @@ async function requestAiExplanation() {
     renderAiExplanation(currentQuestion);
   } catch (error) {
     aiExplanationMeta.textContent = "请求失败";
-    const message = error instanceof TypeError
-      ? "无法连接本地 AI 解析服务。请在 quiz-site 目录运行 node server.js 后，再从 http://127.0.0.1:8767/ 打开网页；直接打开 file:// 页面时也需要保持本地服务运行。"
-      : (error.message || "AI 解析请求失败。");
-    aiExplanationContent.innerHTML = `<p class="muted">${escapeHtml(message)}</p>`;
+    aiExplanationContent.innerHTML = `<p class="muted">${escapeHtml(error.message || "AI 解析请求失败。")}</p>`;
     aiExplainBtn.disabled = false;
     aiExplainBtn.textContent = "AI 解析";
   }
+}
+
+async function fetchAiExplanation(questionPayload, apiKey) {
+  if (shouldPreferLocalProxy()) {
+    try {
+      return await fetchLocalAiExplanation(questionPayload, apiKey);
+    } catch (error) {
+      if (!apiKey || !(error instanceof TypeError)) {
+        throw error;
+      }
+    }
+  }
+  return fetchDeepSeekDirect(questionPayload, apiKey);
+}
+
+async function fetchLocalAiExplanation(questionPayload, apiKey) {
+  const response = await fetch(LOCAL_AI_EXPLAIN_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        apiKey,
+        question: questionPayload,
+      }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if ([404, 405, 501].includes(response.status)) {
+    throw new TypeError("Local AI proxy is unavailable");
+  }
+  if (!response.ok) {
+    throw new Error(payload.error || "AI 解析请求失败。");
+  }
+  return payload;
+}
+
+async function fetchDeepSeekDirect(questionPayload, apiKey) {
+  if (!apiKey) {
+    throw new Error("请先在网页左侧 AI 设置中填写并保存 DeepSeek API Key。");
+  }
+  const response = await fetch(DEEPSEEK_CHAT_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: DEEPSEEK_MODEL,
+      messages: buildDeepSeekMessages(questionPayload),
+      thinking: { type: "enabled" },
+      reasoning_effort: "high",
+      stream: false,
+      max_tokens: 2400,
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || "DeepSeek 请求失败。");
+  }
+  const explanation = payload?.choices?.[0]?.message?.content?.trim();
+  if (!explanation) {
+    throw new Error("DeepSeek 未返回解析内容。");
+  }
+  return {
+    explanation,
+    model: payload.model || DEEPSEEK_MODEL,
+    usage: payload.usage || null,
+  };
+}
+
+function shouldPreferLocalProxy() {
+  return window.location.protocol === "file:"
+    || window.location.hostname === "127.0.0.1"
+    || window.location.hostname === "localhost";
 }
 
 function buildAiQuestionPayload(question) {
@@ -602,6 +662,55 @@ function buildAiQuestionPayload(question) {
     answerText: stripHtml(question.answerHtml) || question.answerText || "",
     existingExplanationText: stripHtml(question.explanationHtml),
   };
+}
+
+function buildDeepSeekMessages(question) {
+  return [
+    {
+      role: "system",
+      content: [
+        "你是一名严谨的高中期末题库讲解老师。",
+        "请用中文给学生讲清楚本题。",
+        "必须按以下结构输出：",
+        "1. 解题思路",
+        "2. 详细解析",
+        "3. 选项分析（若是选择题，逐项分析 A/B/C/D；若没有某个选项，说明题目不是标准选择题）",
+        "4. 易错点",
+        "5. 最终答案",
+        "不要编造题目中没有的信息；若题目依赖图片但图片内容不足，请明确说明需结合题图判断。",
+      ].join("\n"),
+    },
+    {
+      role: "user",
+      content: buildDeepSeekPrompt(question),
+    },
+  ];
+}
+
+function buildDeepSeekPrompt(question) {
+  const optionText = question.options.length
+    ? question.options.map((option) => `${option.label}. ${option.text || "见题图/原题"}`).join("\n")
+    : "无标准选项。";
+
+  return [
+    `题目 ID：${truncateText(question.id, 120)}`,
+    `学科：${truncateText(question.subject, 40)}`,
+    `题型：${question.kind === "choice" ? "选择题" : "主观题"}`,
+    `栏目：${truncateText(question.section || "未标注", 120)}`,
+    "",
+    question.materialText ? `材料：\n${truncateText(question.materialText, 6000)}\n` : "",
+    `题面：\n${truncateText(question.promptText, 8000)}`,
+    "",
+    `选项：\n${optionText}`,
+    "",
+    `标准答案：${truncateText(question.answerText || "未提供", 2000)}`,
+    question.existingExplanationText ? `\n原题已有解析/答案补充：\n${truncateText(question.existingExplanationText, 4000)}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function truncateText(value, maxLength) {
+  const text = String(value || "");
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
 }
 
 function formatAiExplanation(content) {
