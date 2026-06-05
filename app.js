@@ -2,6 +2,9 @@ const questionBank = window.__QUESTION_BANK__ || { subjects: {}, allQuestions: [
 
 const STORAGE_KEY = "final-drill-lab-v1";
 const API_KEY_STORAGE_KEY = "final-drill-lab-deepseek-api-key";
+const AI_EXPLAIN_ENDPOINT = window.location.protocol === "file:"
+  ? "http://127.0.0.1:8767/api/explain"
+  : "/api/explain";
 
 const defaultProgress = {
   mode: "subject-random",
@@ -543,7 +546,7 @@ async function requestAiExplanation() {
   aiExplanationContent.innerHTML = "<p class=\"muted\">正在生成详细解析。</p>";
 
   try {
-    const response = await fetch("/api/explain", {
+    const response = await fetch(AI_EXPLAIN_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -564,7 +567,10 @@ async function requestAiExplanation() {
     renderAiExplanation(currentQuestion);
   } catch (error) {
     aiExplanationMeta.textContent = "请求失败";
-    aiExplanationContent.innerHTML = `<p class="muted">${escapeHtml(error.message || "AI 解析请求失败。")}</p>`;
+    const message = error instanceof TypeError
+      ? "无法连接本地 AI 解析服务。请在 quiz-site 目录运行 node server.js 后，再从 http://127.0.0.1:8767/ 打开网页；直接打开 file:// 页面时也需要保持本地服务运行。"
+      : (error.message || "AI 解析请求失败。");
+    aiExplanationContent.innerHTML = `<p class="muted">${escapeHtml(message)}</p>`;
     aiExplainBtn.disabled = false;
     aiExplainBtn.textContent = "AI 解析";
   }

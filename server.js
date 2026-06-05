@@ -43,6 +43,12 @@ server.listen(PORT, () => {
 });
 
 async function handleExplain(request, response) {
+  setCorsHeaders(response);
+  if (request.method === "OPTIONS") {
+    response.writeHead(204);
+    response.end();
+    return;
+  }
   if (request.method !== "POST") {
     sendJson(response, 405, { error: "Method not allowed" });
     return;
@@ -197,8 +203,19 @@ function serveStatic(pathname, response) {
 }
 
 function sendJson(response, statusCode, body) {
-  response.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
+  response.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+  });
   response.end(JSON.stringify(body));
+}
+
+function setCorsHeaders(response) {
+  response.setHeader("Access-Control-Allow-Origin", "*");
+  response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  response.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
 }
 
 function truncate(value, maxLength) {
