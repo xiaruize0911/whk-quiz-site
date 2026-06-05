@@ -47,12 +47,12 @@ async function handleExplain(request, response) {
     sendJson(response, 405, { error: "Method not allowed" });
     return;
   }
-  if (!DEEPSEEK_API_KEY) {
-    sendJson(response, 500, { error: "服务端缺少 DEEPSEEK_API_KEY 环境变量。" });
+  const body = await readJsonBody(request);
+  const apiKey = String(body.apiKey || "").trim() || DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    sendJson(response, 400, { error: "请先在网页左侧 AI 设置中填写 DeepSeek API Key。" });
     return;
   }
-
-  const body = await readJsonBody(request);
   const question = sanitizeQuestion(body.question || {});
   if (!question.id || !question.promptText) {
     sendJson(response, 400, { error: "题目信息不完整。" });
@@ -63,7 +63,7 @@ async function handleExplain(request, response) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: DEEPSEEK_MODEL,

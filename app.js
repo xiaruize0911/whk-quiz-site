@@ -1,6 +1,7 @@
 const questionBank = window.__QUESTION_BANK__ || { subjects: {}, allQuestions: [] };
 
 const STORAGE_KEY = "final-drill-lab-v1";
+const API_KEY_STORAGE_KEY = "final-drill-lab-deepseek-api-key";
 
 const defaultProgress = {
   mode: "subject-random",
@@ -45,6 +46,10 @@ const markCorrectBtn = document.getElementById("mark-correct-btn");
 const markWrongBtn = document.getElementById("mark-wrong-btn");
 const clearWrongbookBtn = document.getElementById("clear-wrongbook");
 const resetSubjectStatsBtn = document.getElementById("reset-subject-stats");
+const deepseekApiKeyInput = document.getElementById("deepseek-api-key");
+const saveApiKeyBtn = document.getElementById("save-api-key");
+const clearApiKeyBtn = document.getElementById("clear-api-key");
+const apiKeyStatus = document.getElementById("api-key-status");
 const modeButtons = Array.from(document.querySelectorAll(".mode-btn"));
 const practiceView = document.getElementById("practice-view");
 const ledgerView = document.getElementById("ledger-view");
@@ -79,6 +84,7 @@ function init() {
 
   renderSubjects();
   renderModeButtons();
+  renderApiKeySettings();
   bindEvents();
   renderActiveView();
   openNextQuestion();
@@ -92,6 +98,8 @@ function bindEvents() {
   nextBtn.addEventListener("click", () => goToNextQuestion());
   revealBtn.addEventListener("click", () => revealAnswer(false));
   aiExplainBtn.addEventListener("click", requestAiExplanation);
+  saveApiKeyBtn.addEventListener("click", saveApiKeySetting);
+  clearApiKeyBtn.addEventListener("click", clearApiKeySetting);
   markCorrectBtn.addEventListener("click", () => selfMark(true));
   markWrongBtn.addEventListener("click", () => selfMark(false));
   practiceViewBtn.addEventListener("click", () => switchView("practice"));
@@ -174,6 +182,32 @@ function renderModeButtons() {
   modeButtons.forEach((button) => {
     button.classList.toggle("active", button.dataset.mode === state.mode);
   });
+}
+
+function renderApiKeySettings() {
+  const saved = getSavedApiKey();
+  deepseekApiKeyInput.value = saved;
+  apiKeyStatus.textContent = saved ? "已在本地保存 API Key" : "未保存 API Key";
+}
+
+function saveApiKeySetting() {
+  const value = deepseekApiKeyInput.value.trim();
+  if (!value) {
+    clearApiKeySetting();
+    return;
+  }
+  localStorage.setItem(API_KEY_STORAGE_KEY, value);
+  renderApiKeySettings();
+}
+
+function clearApiKeySetting() {
+  localStorage.removeItem(API_KEY_STORAGE_KEY);
+  deepseekApiKeyInput.value = "";
+  renderApiKeySettings();
+}
+
+function getSavedApiKey() {
+  return localStorage.getItem(API_KEY_STORAGE_KEY) || "";
 }
 
 function getCurrentSubjectQuestions({ filtered = false } = {}) {
@@ -500,6 +534,7 @@ async function requestAiExplanation() {
     aiExplanationPanel.classList.toggle("hidden");
     return;
   }
+  const apiKey = getSavedApiKey();
 
   aiExplainBtn.disabled = true;
   aiExplainBtn.textContent = "生成中...";
@@ -511,7 +546,10 @@ async function requestAiExplanation() {
     const response = await fetch("/api/explain", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question: buildAiQuestionPayload(currentQuestion) }),
+      body: JSON.stringify({
+        apiKey,
+        question: buildAiQuestionPayload(currentQuestion),
+      }),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {

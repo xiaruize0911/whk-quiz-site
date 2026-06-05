@@ -34,6 +34,19 @@
 
         <section class="sidebar-section">
           <div class="section-head">
+            <h2>AI 设置</h2>
+            <button id="clear-api-key" class="ghost-btn">清除</button>
+          </div>
+          <label class="input-label" for="deepseek-api-key">DeepSeek API Key</label>
+          <div class="api-key-row">
+            <input id="deepseek-api-key" class="api-key-input" type="password" autocomplete="off" placeholder="sk-..." />
+            <button id="save-api-key" class="primary-btn">保存</button>
+          </div>
+          <p id="api-key-status" class="muted api-key-status">未保存 API Key</p>
+        </section>
+
+        <section class="sidebar-section">
+          <div class="section-head">
             <h2>统计</h2>
             <button id="reset-subject-stats" class="ghost-btn">重置当前学科</button>
           </div>

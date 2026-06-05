@@ -187,6 +187,33 @@ button:disabled {
   margin: 0;
 }
 
+.api-key-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.api-key-input {
+  min-width: 0;
+  min-height: 48px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+}
+
+.api-key-input:focus {
+  outline: 2px solid rgba(31, 95, 191, 0.16);
+  border-color: rgba(31, 95, 191, 0.36);
+}
+
+.api-key-status {
+  margin: 8px 0 0;
+  font-size: 0.9rem;
+}
+
 .main-panel {
   padding: 28px;
   min-width: 0;
@@ -726,6 +753,7 @@ button:disabled {
   .toolbar-actions,
   .view-switch,
   .question-actions,
+  .api-key-row,
   .subjective-actions {
     width: 100%;
   }
