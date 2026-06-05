@@ -64,6 +64,7 @@
               <button id="prev-btn" class="ghost-btn">上一题</button>
               <button id="next-btn" class="ghost-btn">下一题</button>
               <button id="reveal-btn" class="primary-btn">显示答案</button>
+              <button id="ai-explain-btn" class="primary-btn">AI 解析</button>
             </div>
           </div>
         </header>
@@ -98,6 +99,16 @@
 
           <div id="feedback-box" class="feedback-box hidden"></div>
           <div id="answer-content" class="answer-panel hidden"></div>
+          <div id="ai-explanation-panel" class="ai-explanation-panel hidden">
+            <div class="ai-explanation-head">
+              <div>
+                <p class="eyebrow">DeepSeek</p>
+                <h3>AI 详细解析</h3>
+              </div>
+              <span id="ai-explanation-meta" class="muted"></span>
+            </div>
+            <div id="ai-explanation-content" class="rich-block"></div>
+          </div>
         </section>
 
         <section id="ledger-view" class="ledger-panel hidden">

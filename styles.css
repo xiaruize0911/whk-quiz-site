@@ -604,7 +604,8 @@ button:disabled {
 }
 
 .feedback-box,
-.answer-panel {
+.answer-panel,
+.ai-explanation-panel {
   margin-top: 18px;
   padding: 18px;
   border-radius: 20px;
@@ -656,6 +657,24 @@ button:disabled {
 .answer-panel {
   background: rgba(31, 95, 191, 0.06);
   border: 1px solid rgba(31, 95, 191, 0.2);
+}
+
+.ai-explanation-panel {
+  background: rgba(47, 109, 79, 0.055);
+  border: 1px solid rgba(47, 109, 79, 0.22);
+}
+
+.ai-explanation-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.ai-explanation-head h3 {
+  margin: 2px 0 0;
+  font-family: "Kaiti SC", "STKaiti", serif;
 }
 
 @media (max-width: 1080px) {

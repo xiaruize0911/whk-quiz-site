@@ -15,6 +15,7 @@ const defaultProgress = {
   shuffledCursor: {},
   shuffledOrder: {},
   answerDrafts: {},
+  aiExplanations: {},
   activeView: "practice",
 };
 
@@ -39,6 +40,7 @@ const answerContent = document.getElementById("answer-content");
 const prevBtn = document.getElementById("prev-btn");
 const nextBtn = document.getElementById("next-btn");
 const revealBtn = document.getElementById("reveal-btn");
+const aiExplainBtn = document.getElementById("ai-explain-btn");
 const markCorrectBtn = document.getElementById("mark-correct-btn");
 const markWrongBtn = document.getElementById("mark-wrong-btn");
 const clearWrongbookBtn = document.getElementById("clear-wrongbook");
@@ -53,6 +55,9 @@ const questionLedger = document.getElementById("question-ledger");
 const imageZoom = document.getElementById("image-zoom");
 const imageZoomImg = document.getElementById("image-zoom-img");
 const imageZoomClose = document.getElementById("image-zoom-close");
+const aiExplanationPanel = document.getElementById("ai-explanation-panel");
+const aiExplanationContent = document.getElementById("ai-explanation-content");
+const aiExplanationMeta = document.getElementById("ai-explanation-meta");
 
 let currentQuestion = null;
 let answeredThisRound = false;
@@ -86,6 +91,7 @@ function bindEvents() {
   prevBtn.addEventListener("click", () => goToPreviousQuestion());
   nextBtn.addEventListener("click", () => goToNextQuestion());
   revealBtn.addEventListener("click", () => revealAnswer(false));
+  aiExplainBtn.addEventListener("click", requestAiExplanation);
   markCorrectBtn.addEventListener("click", () => selfMark(true));
   markWrongBtn.addEventListener("click", () => selfMark(false));
   practiceViewBtn.addEventListener("click", () => switchView("practice"));
@@ -139,6 +145,7 @@ function renderActiveView() {
   prevBtn.classList.toggle("hidden", isLedger);
   nextBtn.classList.toggle("hidden", isLedger);
   revealBtn.classList.toggle("hidden", isLedger);
+  aiExplainBtn.classList.toggle("hidden", isLedger);
   if (isLedger) {
     renderQuestionLedger();
   }
@@ -227,6 +234,9 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
     subjectiveActions.classList.add("hidden");
     feedbackBox.classList.add("hidden");
     answerContent.classList.add("hidden");
+    aiExplanationPanel.classList.add("hidden");
+    aiExplanationContent.innerHTML = "";
+    aiExplanationMeta.textContent = "";
     materialContent.classList.add("hidden");
     materialContent.innerHTML = "";
     renderNavButtons();
@@ -271,6 +281,7 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
   materialContent.classList.toggle("hidden", !materialSplit.materialHtml);
   promptContent.innerHTML = materialSplit.promptHtml || "<p>题面缺失</p>";
   answerContent.innerHTML = buildAnswerPanel(currentQuestion);
+  renderAiExplanation(currentQuestion);
   enhanceRichContent(materialContent);
   enhanceRichContent(promptContent);
   enhanceRichContent(answerContent);
@@ -465,6 +476,95 @@ function buildAnswerPanel(question) {
     parts.push(`<div class="rich-block"><p><strong>解析</strong></p>${question.explanationHtml}</div>`);
   }
   return parts.join("") || "<p>当前题目没有解析内容。</p>";
+}
+
+function renderAiExplanation(question) {
+  const cached = state.aiExplanations?.[question.id];
+  aiExplainBtn.disabled = false;
+  aiExplainBtn.textContent = cached ? "显示 AI 解析" : "AI 解析";
+  aiExplanationMeta.textContent = cached?.model ? cached.model : "";
+  if (!cached?.content) {
+    aiExplanationPanel.classList.add("hidden");
+    aiExplanationContent.innerHTML = "";
+    return;
+  }
+  aiExplanationContent.innerHTML = formatAiExplanation(cached.content);
+  enhanceRichContent(aiExplanationContent);
+  aiExplanationPanel.classList.remove("hidden");
+}
+
+async function requestAiExplanation() {
+  if (!currentQuestion) return;
+  const cached = state.aiExplanations?.[currentQuestion.id];
+  if (cached?.content) {
+    aiExplanationPanel.classList.toggle("hidden");
+    return;
+  }
+
+  aiExplainBtn.disabled = true;
+  aiExplainBtn.textContent = "生成中...";
+  aiExplanationPanel.classList.remove("hidden");
+  aiExplanationMeta.textContent = "";
+  aiExplanationContent.innerHTML = "<p class=\"muted\">正在生成详细解析。</p>";
+
+  try {
+    const response = await fetch("/api/explain", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: buildAiQuestionPayload(currentQuestion) }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || "AI 解析请求失败。");
+    }
+    state.aiExplanations[currentQuestion.id] = {
+      content: payload.explanation || "",
+      model: payload.model || "",
+      createdAt: Date.now(),
+    };
+    persist();
+    renderAiExplanation(currentQuestion);
+  } catch (error) {
+    aiExplanationMeta.textContent = "请求失败";
+    aiExplanationContent.innerHTML = `<p class="muted">${escapeHtml(error.message || "AI 解析请求失败。")}</p>`;
+    aiExplainBtn.disabled = false;
+    aiExplainBtn.textContent = "AI 解析";
+  }
+}
+
+function buildAiQuestionPayload(question) {
+  const choiceContent = question.kind === "choice"
+    ? splitChoiceContent(question)
+    : {
+        promptHtml: `${question.promptHtml || ""}${question.optionsHtml || ""}`,
+        optionsHtml: "",
+      };
+  const materialSplit = splitMaterialFromPrompt(choiceContent.promptHtml || "");
+  const options = question.kind === "choice"
+    ? Object.entries(getQuestionOptions(question, choiceContent.optionsHtml)).map(([label, html]) => ({
+        label,
+        text: stripHtml(html),
+      }))
+    : [];
+
+  return {
+    id: question.id,
+    subject: question.subject,
+    section: question.section,
+    kind: question.kind,
+    materialText: stripHtml(materialSplit.materialHtml),
+    promptText: stripHtml(materialSplit.promptHtml || choiceContent.promptHtml || question.promptHtml),
+    options,
+    answerText: stripHtml(question.answerHtml) || question.answerText || "",
+    existingExplanationText: stripHtml(question.explanationHtml),
+  };
+}
+
+function formatAiExplanation(content) {
+  return escapeHtml(content)
+    .split(/\n{2,}/)
+    .map((paragraph) => `<p>${paragraph.replace(/\n/g, "<br/>")}</p>`)
+    .join("");
 }
 
 function chooseQuestion() {
