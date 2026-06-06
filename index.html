@@ -72,6 +72,7 @@
             <div class="view-switch" aria-label="页面切换">
               <button id="practice-view-btn" class="view-btn active">刷题</button>
               <button id="ledger-view-btn" class="view-btn">题目数据</button>
+              <button id="answer-review-view-btn" class="view-btn">背答案</button>
             </div>
             <div class="question-actions" aria-label="题目操作">
               <button id="prev-btn" class="ghost-btn">上一题</button>
@@ -133,6 +134,22 @@
             <div id="ledger-summary" class="ledger-summary"></div>
           </div>
           <div id="question-ledger" class="question-ledger"></div>
+        </section>
+
+        <section id="answer-review-view" class="answer-review-panel hidden">
+          <div class="ledger-head">
+            <div>
+              <p class="eyebrow">Answer Review</p>
+              <h2>背答案</h2>
+            </div>
+            <div class="answer-review-actions">
+              <div id="answer-review-summary" class="ledger-summary"></div>
+              <button id="copy-answer-review-btn" class="primary-btn">复制本学科答案</button>
+            </div>
+          </div>
+          <div id="answer-review-copy-status" class="muted answer-review-copy-status"></div>
+          <textarea id="answer-review-plain-text" class="answer-review-plain-text" readonly aria-label="当前学科纯文本答案"></textarea>
+          <div id="answer-review-list" class="answer-review-list"></div>
         </section>
       </main>
     </div>

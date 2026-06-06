@@ -60,8 +60,15 @@ const practiceView = document.getElementById("practice-view");
 const ledgerView = document.getElementById("ledger-view");
 const practiceViewBtn = document.getElementById("practice-view-btn");
 const ledgerViewBtn = document.getElementById("ledger-view-btn");
+const answerReviewView = document.getElementById("answer-review-view");
+const answerReviewViewBtn = document.getElementById("answer-review-view-btn");
 const ledgerSummary = document.getElementById("ledger-summary");
 const questionLedger = document.getElementById("question-ledger");
+const answerReviewSummary = document.getElementById("answer-review-summary");
+const answerReviewList = document.getElementById("answer-review-list");
+const copyAnswerReviewBtn = document.getElementById("copy-answer-review-btn");
+const answerReviewCopyStatus = document.getElementById("answer-review-copy-status");
+const answerReviewPlainText = document.getElementById("answer-review-plain-text");
 const imageZoom = document.getElementById("image-zoom");
 const imageZoomImg = document.getElementById("image-zoom-img");
 const imageZoomClose = document.getElementById("image-zoom-close");
@@ -109,6 +116,8 @@ function bindEvents() {
   markWrongBtn.addEventListener("click", () => selfMark(false));
   practiceViewBtn.addEventListener("click", () => switchView("practice"));
   ledgerViewBtn.addEventListener("click", () => switchView("ledger"));
+  answerReviewViewBtn.addEventListener("click", () => switchView("answer-review"));
+  copyAnswerReviewBtn.addEventListener("click", copyAnswerReviewText);
   imageZoom.addEventListener("click", closeImageZoom);
   imageZoomClose.addEventListener("click", closeImageZoom);
   imageZoomImg.addEventListener("click", (event) => event.stopPropagation());
@@ -127,6 +136,7 @@ function bindEvents() {
     renderWrongbook();
     renderStats();
     renderQuestionLedger();
+    renderAnswerReview();
   });
   resetSubjectStatsBtn.addEventListener("click", () => {
     resetCurrentSubjectProgress();
@@ -139,6 +149,7 @@ function bindEvents() {
       openNextQuestion();
       renderStats();
       renderQuestionLedger();
+      renderAnswerReview();
     });
   });
 }
@@ -151,16 +162,22 @@ function switchView(view) {
 
 function renderActiveView() {
   const isLedger = state.activeView === "ledger";
-  practiceView.classList.toggle("hidden", isLedger);
+  const isAnswerReview = state.activeView === "answer-review";
+  practiceView.classList.toggle("hidden", isLedger || isAnswerReview);
   ledgerView.classList.toggle("hidden", !isLedger);
-  practiceViewBtn.classList.toggle("active", !isLedger);
+  answerReviewView.classList.toggle("hidden", !isAnswerReview);
+  practiceViewBtn.classList.toggle("active", !isLedger && !isAnswerReview);
   ledgerViewBtn.classList.toggle("active", isLedger);
-  prevBtn.classList.toggle("hidden", isLedger);
-  nextBtn.classList.toggle("hidden", isLedger);
-  revealBtn.classList.toggle("hidden", isLedger);
-  aiExplainBtn.classList.toggle("hidden", isLedger);
+  answerReviewViewBtn.classList.toggle("active", isAnswerReview);
+  prevBtn.classList.toggle("hidden", isLedger || isAnswerReview);
+  nextBtn.classList.toggle("hidden", isLedger || isAnswerReview);
+  revealBtn.classList.toggle("hidden", isLedger || isAnswerReview);
+  aiExplainBtn.classList.toggle("hidden", isLedger || isAnswerReview);
   if (isLedger) {
     renderQuestionLedger();
+  }
+  if (isAnswerReview) {
+    renderAnswerReview();
   }
 }
 
@@ -177,6 +194,7 @@ function renderSubjects() {
       openNextQuestion();
       renderStats();
       renderQuestionLedger();
+      renderAnswerReview();
       renderWrongbook();
     });
     subjectTabs.appendChild(button);
@@ -257,6 +275,7 @@ function resetCurrentSubjectProgress() {
   openNextQuestion();
   renderStats();
   renderWrongbook();
+  renderAnswerReview();
   renderNavButtons();
 }
 
@@ -343,6 +362,7 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
 
   renderStats();
   renderQuestionLedger();
+  renderAnswerReview();
   renderWrongbook();
   renderNavButtons();
 }
@@ -949,6 +969,171 @@ function renderQuestionLedger() {
   });
 }
 
+function renderAnswerReview() {
+  if (!answerReviewList || !answerReviewSummary) return;
+  const questions = getCurrentSubjectQuestions();
+  const choiceCount = questions.filter((question) => question.kind === "choice").length;
+  const subjectiveCount = questions.length - choiceCount;
+  const missingCount = questions.filter((question) => getAnswerReviewItem(question).missing).length;
+  const groups = groupQuestionsForAnswerReview(questions);
+
+  answerReviewSummary.innerHTML = [
+    `<span>${state.currentSubject}</span>`,
+    `<span>共 ${questions.length} 题</span>`,
+    `<span>选择 ${choiceCount}</span>`,
+    `<span>主观 ${subjectiveCount}</span>`,
+    missingCount ? `<span>待补 ${missingCount}</span>` : "",
+  ].join("");
+  answerReviewCopyStatus.textContent = "";
+  answerReviewPlainText.value = buildAnswerReviewText();
+
+  answerReviewList.innerHTML = "";
+  if (!questions.length) {
+    answerReviewList.innerHTML = `<p class="muted">当前学科没有可整理的题目。</p>`;
+    copyAnswerReviewBtn.disabled = true;
+    return;
+  }
+  copyAnswerReviewBtn.disabled = false;
+
+  groups.forEach((group) => {
+    const section = document.createElement("section");
+    section.className = "answer-review-group";
+    section.innerHTML = `<h3>${escapeHtml(group.title)}</h3>`;
+
+    const list = document.createElement("div");
+    list.className = "answer-review-items";
+    group.questions.forEach((question) => {
+      const answer = getAnswerReviewItem(question);
+      const item = document.createElement("article");
+      item.className = `answer-review-item ${question.kind === "choice" ? "choice-answer" : "subjective-answer"}`;
+      item.innerHTML = `
+        <div class="answer-review-index">${escapeHtml(question.label || question.number || "")}</div>
+        <div class="answer-review-main">
+          <div class="answer-review-title">
+            <strong>${escapeHtml(question.label || question.number || "题目")}</strong>
+            <span>${question.kind === "choice" ? "选择题" : "主观题"}</span>
+          </div>
+          <p class="answer-review-answer">${escapeHtml(answer.displayAnswer)}</p>
+          ${answer.briefPrompt ? `<p class="answer-review-prompt">${escapeHtml(answer.briefPrompt)}</p>` : ""}
+        </div>
+      `;
+      const jumpBtn = document.createElement("button");
+      jumpBtn.className = "ghost-btn";
+      jumpBtn.textContent = "跳到此题";
+      jumpBtn.addEventListener("click", () => {
+        switchView("practice");
+        openNextQuestion(question);
+      });
+      item.appendChild(jumpBtn);
+      list.appendChild(item);
+    });
+
+    section.appendChild(list);
+    answerReviewList.appendChild(section);
+  });
+}
+
+function groupQuestionsForAnswerReview(questions) {
+  const groups = [];
+  const groupMap = new Map();
+  questions.forEach((question) => {
+    const title = question.group || question.section || "未分类";
+    if (!groupMap.has(title)) {
+      const group = { title, questions: [] };
+      groups.push(group);
+      groupMap.set(title, group);
+    }
+    groupMap.get(title).questions.push(question);
+  });
+  return groups;
+}
+
+function getAnswerReviewItem(question) {
+  const answerText = cleanAnswerText(
+    question.answerText
+      || stripHtml(question.answerHtml)
+      || recoverEmbeddedAnswer(question),
+  );
+  const choiceAnswer = question.kind === "choice" ? normalizeAnswer(answerText) : "";
+  const displayAnswer = choiceAnswer || answerText || "题库未提供答案";
+  return {
+    displayAnswer: question.kind === "choice" ? `答案：${displayAnswer}` : displayAnswer,
+    briefPrompt: buildAnswerReviewPrompt(question),
+    missing: !answerText,
+  };
+}
+
+function recoverEmbeddedAnswer(question) {
+  const text = stripHtml(`${question.promptHtml || ""}${question.optionsHtml || ""}`);
+  const explicitAnswer = text.match(/答案\s*[:：]\s*(.+)$/u);
+  if (explicitAnswer) {
+    return explicitAnswer[1].trim();
+  }
+
+  const proof = text.match(/[\[［【]\s*(证明|证|解|解析)\s*[\]］】]\s*(.+)$/u);
+  if (proof) {
+    return `${proof[1]}：${proof[2].trim()}`;
+  }
+
+  const blankAnswer = text.match(/_{3,}[^。．.]*[。．.]?\s*([^\[［【]+?)\s*[\[［【]/u);
+  if (blankAnswer) {
+    return blankAnswer[1].trim();
+  }
+
+  return "";
+}
+
+function buildAnswerReviewPrompt(question) {
+  const choiceContent = question.kind === "choice"
+    ? splitChoiceContent(question)
+    : {
+        promptHtml: `${question.promptHtml || ""}${question.optionsHtml || ""}`,
+        optionsHtml: "",
+      };
+  const materialSplit = splitMaterialFromPrompt(choiceContent.promptHtml || "");
+  const promptText = stripHtml(materialSplit.promptHtml || choiceContent.promptHtml || question.promptHtml);
+  return truncateText(promptText, 120);
+}
+
+function buildAnswerReviewText() {
+  const questions = getCurrentSubjectQuestions();
+  const lines = [`${state.currentSubject}答案背诵表`, `共 ${questions.length} 题`, ""];
+  groupQuestionsForAnswerReview(questions).forEach((group) => {
+    lines.push(`【${group.title}】`);
+    group.questions.forEach((question) => {
+      const answer = getAnswerReviewItem(question).displayAnswer.replace(/^答案：/, "");
+      const label = question.label || question.number || question.id;
+      lines.push(`${label}. ${answer}`);
+    });
+    lines.push("");
+  });
+  return lines.join("\n").trim();
+}
+
+async function copyAnswerReviewText() {
+  const text = buildAnswerReviewText();
+  if (!text) return;
+  answerReviewPlainText.value = text;
+  try {
+    await navigator.clipboard.writeText(text);
+    answerReviewCopyStatus.textContent = "已复制当前学科答案。";
+  } catch (error) {
+    answerReviewPlainText.focus();
+    answerReviewPlainText.select();
+    const copied = document.execCommand("copy");
+    answerReviewCopyStatus.textContent = copied
+      ? "已复制当前学科答案。"
+      : "浏览器阻止自动复制，已选中下方纯文本答案。";
+  }
+}
+
+function cleanAnswerText(value) {
+  return String(value || "")
+    .replace(/^【?答案】?\s*[:：]?/u, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function formatLastSeen(value) {
   if (!value) return "未练";
   const date = new Date(value);
@@ -1036,6 +1221,7 @@ function renderWrongbook() {
       persist();
       renderWrongbook();
       renderQuestionLedger();
+      renderAnswerReview();
     });
 
     actionBar.appendChild(jumpBtn);
