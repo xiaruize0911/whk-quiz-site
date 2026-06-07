@@ -1055,12 +1055,36 @@ function getAnswerReviewItem(question) {
       || recoverEmbeddedAnswer(question),
   );
   const choiceAnswer = question.kind === "choice" ? normalizeAnswer(answerText) : "";
-  const displayAnswer = choiceAnswer || answerText || "题库未提供答案";
+  const choiceAnswerText = choiceAnswer ? getChoiceAnswerText(question, choiceAnswer) : "";
+  const displayAnswer = choiceAnswer
+    ? `${choiceAnswer}${choiceAnswerText ? `．${choiceAnswerText}` : ""}`
+    : answerText || "题库未提供答案";
   return {
     displayAnswer: question.kind === "choice" ? `答案：${displayAnswer}` : displayAnswer,
     briefPrompt: buildAnswerReviewPrompt(question),
     missing: !answerText,
   };
+}
+
+function getChoiceAnswerText(question, choiceAnswer) {
+  const choiceContent = splitChoiceContent(question);
+  const optionMap = getQuestionOptions(question, choiceContent.optionsHtml);
+  const labels = choiceAnswer.split("");
+  return labels
+    .map((label) => {
+      const optionText = cleanOptionText(label, stripHtml(optionMap[label] || ""));
+      if (!optionText) return "";
+      return labels.length === 1 ? optionText : `${label}. ${optionText}`;
+    })
+    .filter(Boolean)
+    .join("；");
+}
+
+function cleanOptionText(label, value) {
+  return String(value || "")
+    .replace(new RegExp(`^\\s*${label}\\s*[\\.．、]?\\s*`, "i"), "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function recoverEmbeddedAnswer(question) {
