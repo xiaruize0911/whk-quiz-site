@@ -689,15 +689,18 @@ function buildDeepSeekMessages(question) {
     {
       role: "system",
       content: [
-        "你是一名严谨的高中期末题库讲解老师。",
-        "请用中文给学生讲清楚本题。",
+        "你是一名高中老师，正在给高二学生讲期末题。",
+        "解释要直白、简单，默认学生只掌握高中课内知识。",
+        "不要使用大学、竞赛或超纲方法；如果原题只能用图判断，要直接说明需要看图。",
+        "少用术语，必须用术语时先用一句话解释它是什么意思。",
+        "每一步都说清楚为什么这么做，不要跳步。",
         "必须按以下结构输出：",
-        "1. 解题思路",
-        "2. 详细解析",
-        "3. 选项分析（若是选择题，逐项分析 A/B/C/D；若没有某个选项，说明题目不是标准选择题）",
-        "4. 易错点",
-        "5. 最终答案",
-        "不要编造题目中没有的信息；若题目依赖图片但图片内容不足，请明确说明需结合题图判断。",
+        "1. 先看什么",
+        "2. 一步一步做",
+        "3. 选项为什么对/错（选择题逐项分析；非选择题写“不适用”）",
+        "4. 容易错在哪里",
+        "5. 最后答案",
+        "不要编造题目中没有的信息。",
       ].join("\n"),
     },
     {
@@ -1166,11 +1169,18 @@ function formatLastSeen(value) {
 }
 
 function renderNavButtons() {
-  prevBtn.disabled = state.historyCursor <= 0;
+  prevBtn.disabled = state.mode === "sequential"
+    ? getSequentialQuestionIndex() <= 0
+    : state.historyCursor <= 0;
   nextBtn.disabled = !canGoNext();
 }
 
 function canGoNext() {
+  if (state.mode === "sequential") {
+    const subjectQuestions = getCurrentSubjectQuestions({ filtered: true });
+    const currentIndex = getSequentialQuestionIndex(subjectQuestions);
+    return currentIndex >= 0 && currentIndex < subjectQuestions.length - 1;
+  }
   if (state.historyCursor < state.questionHistory.length - 1) {
     return true;
   }
@@ -1183,6 +1193,10 @@ function canGoNext() {
 }
 
 function goToPreviousQuestion() {
+  if (state.mode === "sequential") {
+    goToSequentialOffset(-1);
+    return;
+  }
   if (state.historyCursor <= 0) return;
   clearAutoNext();
   state.historyCursor -= 1;
@@ -1192,6 +1206,10 @@ function goToPreviousQuestion() {
 }
 
 function goToNextQuestion() {
+  if (state.mode === "sequential") {
+    goToSequentialOffset(1);
+    return;
+  }
   if (state.historyCursor < state.questionHistory.length - 1) {
     clearAutoNext();
     state.historyCursor += 1;
@@ -1201,6 +1219,22 @@ function goToNextQuestion() {
     return;
   }
   openNextQuestion();
+}
+
+function goToSequentialOffset(offset) {
+  const subjectQuestions = getCurrentSubjectQuestions({ filtered: true });
+  const currentIndex = getSequentialQuestionIndex(subjectQuestions);
+  if (currentIndex < 0) return;
+  const nextIndex = currentIndex + offset;
+  if (nextIndex < 0 || nextIndex >= subjectQuestions.length) return;
+  clearAutoNext();
+  state.sequenceCursor[state.currentSubject] = nextIndex + 1;
+  openQuestion(subjectQuestions[nextIndex], { recordSeen: true, pushHistory: false });
+}
+
+function getSequentialQuestionIndex(subjectQuestions = getCurrentSubjectQuestions({ filtered: true })) {
+  if (!currentQuestion) return -1;
+  return subjectQuestions.findIndex((question) => question.id === currentQuestion.id);
 }
 
 function statCard(label, value) {
