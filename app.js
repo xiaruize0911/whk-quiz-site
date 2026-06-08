@@ -1523,10 +1523,20 @@ function mergeOptionLabels(primaryLabels, parsedLabels) {
 function extractOptionBlocks(optionsHtml) {
   const wrapper = document.createElement("div");
   wrapper.innerHTML = optionsHtml || "";
+  const listOptions = Array.from(wrapper.querySelectorAll("[data-option]")).reduce((result, node) => {
+    const label = String(node.getAttribute("data-option") || "").trim().toUpperCase();
+    if (["A", "B", "C", "D", "E", "F", "G"].includes(label)) {
+      result[label] = `<p>${label}. ${node.innerHTML}</p>`;
+    }
+    return result;
+  }, {});
+  if (Object.keys(listOptions).length) {
+    return listOptions;
+  }
   return Array.from(wrapper.children).reduce((result, node) => {
     const html = node.outerHTML || "";
     const text = stripHtml(html);
-    const match = text.match(/^\s*([A-G])\s*[\.．、]/);
+    const match = text.match(/^\s*([A-G])\s*[\.．]/);
     if (match) {
       result[match[1]] = html;
     }
@@ -1541,6 +1551,16 @@ function splitChoiceContent(question) {
   const optionBlocks = {};
 
   Array.from(wrapper.children).forEach((node) => {
+    if (node.querySelector?.("[data-option]")) {
+      Array.from(node.querySelectorAll("[data-option]")).forEach((optionNode) => {
+        const label = String(optionNode.getAttribute("data-option") || "").trim().toUpperCase();
+        if (["A", "B", "C", "D", "E", "F", "G"].includes(label)) {
+          optionBlocks[label] = `<p>${label}. ${optionNode.innerHTML}</p>`;
+        }
+      });
+      return;
+    }
+
     if (node.tagName !== "P") {
       const html = node.outerHTML || "";
       if (hasVisibleContent(html)) {
@@ -1622,10 +1642,10 @@ function unwrapSpanTags(html) {
 }
 
 function findOptionLabelMatches(html) {
-  return Array.from((html || "").matchAll(/(^|[\s>])([A-G])\s*[\.．、]/g))
+  return Array.from((html || "").matchAll(/(?<![A-Za-z0-9])([A-G])\s*[\.．]/g))
     .map((match) => ({
-      label: match[2],
-      index: match.index + match[1].length,
+      label: match[1],
+      index: match.index,
     }))
     .filter(({ index }) => index >= 0);
 }
