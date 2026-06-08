@@ -242,6 +242,9 @@ function getProgressFor(id) {
   if (!state.stats[id]) {
     state.stats[id] = { seen: 0, correct: 0, wrong: 0, streak: 0, lastSeenAt: 0 };
   }
+  if (typeof state.stats[id].reviewLevel !== "number") {
+    state.stats[id].reviewLevel = Math.max(0, state.stats[id].wrong || 0);
+  }
   return state.stats[id];
 }
 
@@ -513,9 +516,17 @@ function updateProgress(questionId, isCorrect) {
   if (isCorrect) {
     progress.correct += 1;
     progress.streak = Math.max(0, progress.streak) + 1;
+    if (progress.streak >= 2 && getWrongReviewLevel(progress) > 0) {
+      progress.reviewLevel = Math.max(0, getWrongReviewLevel(progress) - 1);
+      progress.streak = 0;
+      if (progress.reviewLevel === 0) {
+        state.wrongBook = state.wrongBook.filter((id) => id !== questionId);
+      }
+    }
   } else {
     progress.wrong += 1;
     progress.streak = -1;
+    progress.reviewLevel = getWrongReviewLevel(progress) + 1;
     if (!state.wrongBook.includes(questionId)) {
       state.wrongBook.unshift(questionId);
     }
@@ -896,9 +907,11 @@ function renderStats() {
       acc.seen += progress.seen;
       acc.correct += progress.correct;
       acc.wrong += progress.wrong;
+      if (getWrongReviewLevel(progress) >= 3) acc.highRisk += 1;
+      if (getWrongReviewLevel(progress) > 0) acc.review += 1;
       return acc;
     },
-    { seen: 0, correct: 0, wrong: 0 },
+    { seen: 0, correct: 0, wrong: 0, highRisk: 0, review: 0 },
   );
   const accuracy = subjectStats.correct + subjectStats.wrong
     ? Math.round((subjectStats.correct / (subjectStats.correct + subjectStats.wrong)) * 100)
@@ -911,6 +924,8 @@ function renderStats() {
     statCard("正确率", `${accuracy}%`),
     statCard("答对", String(subjectStats.correct)),
     statCard("答错", String(subjectStats.wrong)),
+    statCard("强化题", String(subjectStats.review)),
+    statCard("高危题", String(subjectStats.highRisk)),
   ].join("");
 }
 
@@ -1016,7 +1031,9 @@ function renderAnswerReview() {
             <strong>${escapeHtml(question.label || question.number || "题目")}</strong>
             <span>${question.kind === "choice" ? "选择题" : "主观题"}</span>
           </div>
+          ${answer.keywords.length ? `<div class="answer-keywords">${answer.keywords.map((keyword) => `<span>${escapeHtml(keyword)}</span>`).join("")}</div>` : ""}
           <p class="answer-review-answer">${escapeHtml(answer.displayAnswer)}</p>
+          ${answer.options.length ? `<p class="answer-review-options">${escapeHtml(answer.options.join("；"))}</p>` : ""}
           ${answer.briefPrompt ? `<p class="answer-review-prompt">${escapeHtml(answer.briefPrompt)}</p>` : ""}
         </div>
       `;
@@ -1065,6 +1082,8 @@ function getAnswerReviewItem(question) {
   return {
     displayAnswer: question.kind === "choice" ? `答案：${displayAnswer}` : displayAnswer,
     briefPrompt: buildAnswerReviewPrompt(question),
+    keywords: buildAnswerKeywords(question),
+    options: getChoiceOptionsText(question),
     missing: !answerText,
   };
 }
@@ -1081,6 +1100,18 @@ function getChoiceAnswerText(question, choiceAnswer) {
     })
     .filter(Boolean)
     .join("；");
+}
+
+function getChoiceOptionsText(question) {
+  if (question.kind !== "choice") return [];
+  const choiceContent = splitChoiceContent(question);
+  const optionMap = getQuestionOptions(question, choiceContent.optionsHtml);
+  return Object.entries(optionMap)
+    .map(([label, html]) => {
+      const optionText = cleanOptionText(label, stripHtml(html));
+      return optionText ? `${label}. ${optionText}` : "";
+    })
+    .filter(Boolean);
 }
 
 function cleanOptionText(label, value) {
@@ -1122,15 +1153,70 @@ function buildAnswerReviewPrompt(question) {
   return truncateText(promptText, 120);
 }
 
+function buildAnswerKeywords(question) {
+  const choiceContent = question.kind === "choice"
+    ? splitChoiceContent(question)
+    : {
+        promptHtml: `${question.promptHtml || ""}${question.optionsHtml || ""}`,
+        optionsHtml: "",
+      };
+  const materialSplit = splitMaterialFromPrompt(choiceContent.promptHtml || "");
+  const source = stripHtml(`${materialSplit.promptHtml || choiceContent.promptHtml || question.promptHtml} ${materialSplit.materialHtml || ""}`);
+  const cleaned = source
+    .replace(/[A-G]\s*[\.．、]\s*/g, " ")
+    .replace(/\b\d+\s*[\.．、]\s*/g, " ")
+    .replace(/[，。；：、！？“”‘’（）()[\]{}<>《》—_\-+=*/\\|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const tokens = [];
+  const seen = new Set();
+  const addToken = (token) => {
+    const value = token.trim();
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    tokens.push(value);
+  };
+  Array.from(cleaned.matchAll(/[A-Za-z][A-Za-z0-9'’\-]{3,}|[A-Z][a-z]?[\d+\-]*|[\u4e00-\u9fff]{2,8}|\d+(?:\.\d+)?(?:×10[－-]?\d+|%|个|次|mol|mL|kg|N|J|s|cm|m)?/g))
+    .map((match) => match[0])
+    .filter((token) => !isWeakKeyword(token))
+    .sort((a, b) => scoreKeyword(b) - scoreKeyword(a))
+    .forEach(addToken);
+  return tokens.slice(0, 5);
+}
+
+function isWeakKeyword(token) {
+  const weak = new Set([
+    "下列", "正确", "错误", "的是", "关于", "根据", "答案", "最佳", "选择", "问题", "题目", "如图", "图中", "一个",
+    "which", "that", "with", "from", "this", "these", "those", "there", "what", "when", "where", "would", "could", "should",
+  ]);
+  return weak.has(String(token || "").toLowerCase());
+}
+
+function scoreKeyword(token) {
+  const value = String(token || "");
+  let score = Math.min(value.length, 12);
+  if (/\d/.test(value)) score += 6;
+  if (/[A-Z][a-z]?[\d+\-]*/.test(value)) score += 3;
+  if (/[\u4e00-\u9fff]{3,}/.test(value)) score += 2;
+  return score;
+}
+
 function buildAnswerReviewText() {
   const questions = getCurrentSubjectQuestions();
-  const lines = [`${state.currentSubject}答案背诵表`, `共 ${questions.length} 题`, ""];
+  const lines = [`${state.currentSubject}高频背答案表`, `共 ${questions.length} 题`, ""];
   groupQuestionsForAnswerReview(questions).forEach((group) => {
     lines.push(`【${group.title}】`);
     group.questions.forEach((question) => {
-      const answer = getAnswerReviewItem(question).displayAnswer.replace(/^答案：/, "");
+      const review = getAnswerReviewItem(question);
+      const answer = review.displayAnswer.replace(/^答案：/, "");
       const label = question.label || question.number || question.id;
+      if (review.keywords.length) {
+        lines.push(`${label}. 关键词：${review.keywords.join(" / ")}`);
+      }
       lines.push(`${label}. ${answer}`);
+      if (review.options.length) {
+        lines.push(`   选项：${review.options.join("；")}`);
+      }
     });
     lines.push("");
   });
@@ -1241,27 +1327,103 @@ function statCard(label, value) {
   return `<div class="stat-card"><strong>${value}</strong><span>${label}</span></div>`;
 }
 
+function getWrongReviewLevel(progress) {
+  if (!progress) return 0;
+  if (typeof progress.reviewLevel === "number") {
+    return Math.max(0, progress.reviewLevel);
+  }
+  return Math.max(0, progress.wrong || 0);
+}
+
+function getWrongTier(level) {
+  if (level >= 3) {
+    return {
+      key: "danger",
+      title: "红色高危",
+      label: "错 3 次以上",
+      hint: "优先重做，直到连续答对 2 次降级。",
+    };
+  }
+  if (level === 2) {
+    return {
+      key: "focus",
+      title: "重点复刷",
+      label: "错 2 次",
+      hint: "连续答对 2 次后降为普通错题。",
+    };
+  }
+  if (level === 1) {
+    return {
+      key: "normal",
+      title: "普通错题",
+      label: "错 1 次",
+      hint: "连续答对 2 次后移出强化队列。",
+    };
+  }
+  return {
+    key: "cleared",
+    title: "已掌握",
+    label: "已降级",
+    hint: "当前不在错题强化队列。",
+  };
+}
+
 function renderWrongbook() {
   const subjectQuestions = getCurrentSubjectQuestions({ filtered: true });
-  const wrongQuestions = state.wrongBook
-    .map((id) => subjectQuestions.find((question) => question.id === id))
-    .filter(Boolean);
+  const questionMap = new Map(subjectQuestions.map((question) => [question.id, question]));
+  const wrongQuestions = Array.from(new Set(state.wrongBook))
+    .map((id) => questionMap.get(id))
+    .filter(Boolean)
+    .filter((question) => getWrongReviewLevel(getProgressFor(question.id)) > 0)
+    .sort((a, b) => {
+      const progressA = getProgressFor(a.id);
+      const progressB = getProgressFor(b.id);
+      return getWrongReviewLevel(progressB) - getWrongReviewLevel(progressA)
+        || (progressB.wrong || 0) - (progressA.wrong || 0)
+        || (progressB.lastSeenAt || 0) - (progressA.lastSeenAt || 0);
+    });
+  const normalizedWrongIds = wrongQuestions.map((question) => question.id);
+  if (normalizedWrongIds.length !== state.wrongBook.length || normalizedWrongIds.some((id, index) => id !== state.wrongBook[index])) {
+    state.wrongBook = normalizedWrongIds;
+    persist();
+  }
 
   if (!wrongQuestions.length) {
-    wrongbookList.innerHTML = `<p class="muted">当前学科还没有错题。</p>`;
+    wrongbookList.innerHTML = `<p class="muted">当前学科还没有需要强化的错题。</p>`;
     return;
   }
 
   wrongbookList.innerHTML = "";
-  wrongQuestions.slice(0, 40).forEach((question) => {
+  const grouped = wrongQuestions.slice(0, 60).reduce((result, question) => {
+    const tier = getWrongTier(getWrongReviewLevel(getProgressFor(question.id)));
+    if (!result[tier.key]) result[tier.key] = { tier, questions: [] };
+    result[tier.key].questions.push(question);
+    return result;
+  }, {});
+
+  ["danger", "focus", "normal"].forEach((key) => {
+    const group = grouped[key];
+    if (!group) return;
+    const groupEl = document.createElement("section");
+    groupEl.className = `wrong-tier wrong-tier-${key}`;
+    groupEl.innerHTML = `
+      <div class="wrong-tier-head">
+        <strong>${group.tier.title}</strong>
+        <span>${group.tier.label}</span>
+      </div>
+      <p class="muted">${group.tier.hint}</p>
+    `;
+    group.questions.forEach((question) => {
     const progress = getProgressFor(question.id);
+    const level = getWrongReviewLevel(progress);
+    const tier = getWrongTier(level);
     const item = document.createElement("div");
-    item.className = "wrong-item";
+    item.className = `wrong-item wrong-item-${tier.key}`;
     const preview = stripHtml(question.promptHtml).slice(0, 46) || question.label;
     item.innerHTML = `
       <p><strong>${question.label}</strong> · ${question.section || "未分类"}</p>
       <p class="muted">${preview}${preview.length >= 46 ? "..." : ""}</p>
-      <p class="muted">错 ${progress.wrong} 次 / 对 ${progress.correct} 次</p>
+      <p class="muted">强化等级 ${level} · 累计错 ${progress.wrong} 次 / 对 ${progress.correct} 次 / 连续对 ${Math.max(0, progress.streak || 0)} 次</p>
     `;
     const actionBar = document.createElement("div");
     actionBar.className = "toolbar-actions";
@@ -1285,7 +1447,9 @@ function renderWrongbook() {
     actionBar.appendChild(jumpBtn);
     actionBar.appendChild(removeBtn);
     item.appendChild(actionBar);
-    wrongbookList.appendChild(item);
+    groupEl.appendChild(item);
+    });
+    wrongbookList.appendChild(groupEl);
   });
 }
 
