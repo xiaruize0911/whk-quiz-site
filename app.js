@@ -1429,18 +1429,12 @@ function splitChoiceParagraph(blockHtml) {
   }
 
   const innerHtml = unwrapSpanTags(paragraph.innerHTML || "");
-  const matches = Array.from(innerHtml.matchAll(/(^|[\s>])([A-G])\s*[\.．、]/g));
+  const matches = findOptionLabelMatches(innerHtml);
   if (!matches.length) {
     return { prefixHtml: blockHtml, options: [] };
   }
 
-  const optionStarts = matches
-    .map((match) => {
-      const label = match[2];
-      const index = match.index + match[1].length;
-      return { label, index };
-    })
-    .filter(({ index }) => index >= 0);
+  const optionStarts = chooseOptionLabelSequence(matches);
 
   if (!optionStarts.length) {
     return { prefixHtml: blockHtml, options: [] };
@@ -1461,6 +1455,37 @@ function splitChoiceParagraph(blockHtml) {
 
 function unwrapSpanTags(html) {
   return (html || "").replace(/<\/?span[^>]*>/g, "");
+}
+
+function findOptionLabelMatches(html) {
+  return Array.from((html || "").matchAll(/(^|[\s>])([A-G])\s*[\.．、]/g))
+    .map((match) => ({
+      label: match[2],
+      index: match.index + match[1].length,
+    }))
+    .filter(({ index }) => index >= 0);
+}
+
+function chooseOptionLabelSequence(matches) {
+  if (matches.length <= 1) return matches;
+  const labelOrder = "ABCDEFG";
+  let best = [];
+
+  matches.forEach((start, startIndex) => {
+    const sequence = [start];
+    let expectedIndex = labelOrder.indexOf(start.label) + 1;
+    for (let i = startIndex + 1; i < matches.length && expectedIndex < labelOrder.length; i += 1) {
+      if (matches[i].label === labelOrder[expectedIndex]) {
+        sequence.push(matches[i]);
+        expectedIndex += 1;
+      }
+    }
+    if (sequence.length > best.length) {
+      best = sequence;
+    }
+  });
+
+  return best.length ? best : matches;
 }
 
 function enhanceRichContent(container) {
