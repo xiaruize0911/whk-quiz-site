@@ -568,7 +568,7 @@ function buildAnswerPanel(question) {
   return parts.join("") || "<p>当前题目没有解析内容。</p>";
 }
 
-function renderAiExplanation(question) {
+function renderAiExplanation(question, { showCached = false } = {}) {
   const cached = state.aiExplanations?.[question.id];
   aiExplainBtn.disabled = false;
   aiExplainBtn.textContent = cached ? "显示 AI 解析" : "AI 解析";
@@ -580,7 +580,7 @@ function renderAiExplanation(question) {
   }
   aiExplanationContent.innerHTML = formatAiExplanation(cached.content);
   enhanceRichContent(aiExplanationContent);
-  aiExplanationPanel.classList.remove("hidden");
+  aiExplanationPanel.classList.toggle("hidden", !showCached);
 }
 
 function renderAiGrading(question) {
@@ -732,7 +732,11 @@ async function requestAiExplanation() {
   if (!currentQuestion) return;
   const cached = state.aiExplanations?.[currentQuestion.id];
   if (cached?.content) {
-    aiExplanationPanel.classList.toggle("hidden");
+    if (aiExplanationPanel.classList.contains("hidden")) {
+      renderAiExplanation(currentQuestion, { showCached: true });
+    } else {
+      aiExplanationPanel.classList.add("hidden");
+    }
     return;
   }
   const apiKey = getSavedApiKey();
@@ -751,7 +755,7 @@ async function requestAiExplanation() {
       createdAt: Date.now(),
     };
     persist();
-    renderAiExplanation(currentQuestion);
+    renderAiExplanation(currentQuestion, { showCached: true });
   } catch (error) {
     aiExplanationMeta.textContent = "请求失败";
     aiExplanationContent.innerHTML = `<p class="muted">${escapeHtml(error.message || "AI 解析请求失败。")}</p>`;
