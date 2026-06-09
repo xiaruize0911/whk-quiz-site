@@ -425,12 +425,9 @@ function handleGlobalKeydown(event) {
   const key = event.key;
 
   if (isEditable) {
-    if ((key === "y" || key === "Y") && currentQuestion.kind !== "choice") {
+    if (key === "Escape" && !imageZoom.classList.contains("hidden")) {
       event.preventDefault();
-      selfMark(true);
-    } else if ((key === "n" || key === "N") && currentQuestion.kind !== "choice") {
-      event.preventDefault();
-      selfMark(false);
+      closeImageZoom();
     }
     return;
   }
