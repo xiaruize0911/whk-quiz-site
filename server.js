@@ -203,10 +203,21 @@ function sanitizeQuestion(question) {
   return {
     id: String(question.id || ""),
     subject: String(question.subject || ""),
+    source: String(question.source || ""),
+    label: String(question.label || ""),
     section: String(question.section || ""),
     kind: String(question.kind || ""),
     promptText: truncate(String(question.promptText || ""), 8000),
     materialText: truncate(String(question.materialText || ""), 6000),
+    promptHtml: truncate(String(question.promptHtml || ""), 12000),
+    materialHtml: truncate(String(question.materialHtml || ""), 8000),
+    optionsHtml: truncate(String(question.optionsHtml || ""), 8000),
+    imageRefs: Array.isArray(question.imageRefs)
+      ? question.imageRefs.slice(0, 12).map((item) => ({
+          src: truncate(String(item.src || ""), 500),
+          alt: truncate(String(item.alt || ""), 500),
+        }))
+      : [],
     options: Array.isArray(question.options)
       ? question.options.slice(0, 8).map((option) => ({
           label: String(option.label || ""),
@@ -214,7 +225,9 @@ function sanitizeQuestion(question) {
         }))
       : [],
     answerText: truncate(String(question.answerText || ""), 2000),
+    answerHtml: truncate(String(question.answerHtml || ""), 6000),
     existingExplanationText: truncate(String(question.existingExplanationText || ""), 4000),
+    explanationHtml: truncate(String(question.explanationHtml || ""), 6000),
   };
 }
 
@@ -226,16 +239,26 @@ function buildPrompt(question) {
   return [
     `题目 ID：${question.id}`,
     `学科：${question.subject}`,
+    question.source ? `来源：${question.source}` : "",
+    question.label ? `题号：${question.label}` : "",
     `题型：${question.kind === "choice" ? "选择题" : "主观题"}`,
     `栏目：${question.section || "未标注"}`,
     "",
     question.materialText ? `材料：\n${question.materialText}\n` : "",
     `题面：\n${question.promptText}`,
+    question.imageRefs.length
+      ? `\n图片/图表引用：\n${question.imageRefs.map((item, index) => `${index + 1}. ${item.alt ? `${item.alt}：` : ""}${item.src}`).join("\n")}`
+      : "",
+    question.promptHtml ? `\n题目原始 HTML（用于保留公式、表格和图片位置）：\n${question.promptHtml}` : "",
+    question.materialHtml ? `\n材料原始 HTML：\n${question.materialHtml}` : "",
     "",
     `选项：\n${optionText}`,
+    question.optionsHtml ? `\n选项原始 HTML：\n${question.optionsHtml}` : "",
     "",
     `标准答案：${question.answerText || "未提供"}`,
+    question.answerHtml ? `\n标准答案 HTML：\n${question.answerHtml}` : "",
     question.existingExplanationText ? `\n原题已有解析/答案补充：\n${question.existingExplanationText}` : "",
+    question.explanationHtml ? `\n解析 HTML：\n${question.explanationHtml}` : "",
   ].filter(Boolean).join("\n");
 }
 

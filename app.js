@@ -840,6 +840,9 @@ function buildAiQuestionPayload(question) {
         optionsHtml: "",
       };
   const materialSplit = splitMaterialFromPrompt(choiceContent.promptHtml || "");
+  const promptHtml = materialSplit.promptHtml || choiceContent.promptHtml || question.promptHtml || "";
+  const materialHtml = materialSplit.materialHtml || "";
+  const optionsHtml = choiceContent.optionsHtml || "";
   const options = question.kind === "choice"
     ? Object.entries(getQuestionOptions(question, choiceContent.optionsHtml)).map(([label, html]) => ({
         label,
@@ -852,12 +855,30 @@ function buildAiQuestionPayload(question) {
     subject: question.subject,
     section: question.section,
     kind: question.kind,
-    materialText: stripHtml(materialSplit.materialHtml),
-    promptText: stripHtml(materialSplit.promptHtml || choiceContent.promptHtml || question.promptHtml),
+    source: question.source || "",
+    label: question.label || question.number || "",
+    materialText: stripHtml(materialHtml),
+    promptText: stripHtml(promptHtml),
+    promptHtml: truncateText(promptHtml, 12000),
+    materialHtml: truncateText(materialHtml, 8000),
+    optionsHtml: truncateText(optionsHtml, 8000),
+    imageRefs: extractQuestionImageRefs(`${materialHtml}${promptHtml}${optionsHtml}${question.answerHtml || ""}${question.explanationHtml || ""}`),
     options,
     answerText: stripHtml(question.answerHtml) || question.answerText || "",
+    answerHtml: truncateText(question.answerHtml || "", 6000),
     existingExplanationText: stripHtml(question.explanationHtml),
+    explanationHtml: truncateText(question.explanationHtml || "", 6000),
   };
+}
+
+function extractQuestionImageRefs(html) {
+  return [...String(html || "").matchAll(/<img\b[^>]*src="([^"]+)"[^>]*>/g)]
+    .map((match) => ({
+      src: match[1],
+      alt: (match[0].match(/\balt="([^"]*)"/) || [])[1] || "",
+    }))
+    .filter((item, index, items) => item.src && items.findIndex((other) => other.src === item.src) === index)
+    .slice(0, 12);
 }
 
 function buildDeepSeekMessages(question) {
@@ -894,16 +915,26 @@ function buildDeepSeekPrompt(question) {
   return [
     `题目 ID：${truncateText(question.id, 120)}`,
     `学科：${truncateText(question.subject, 40)}`,
+    question.source ? `来源：${truncateText(question.source, 160)}` : "",
+    question.label ? `题号：${truncateText(question.label, 40)}` : "",
     `题型：${question.kind === "choice" ? "选择题" : "主观题"}`,
     `栏目：${truncateText(question.section || "未标注", 120)}`,
     "",
     question.materialText ? `材料：\n${truncateText(question.materialText, 6000)}\n` : "",
     `题面：\n${truncateText(question.promptText, 8000)}`,
+    question.imageRefs?.length
+      ? `\n图片/图表引用：\n${question.imageRefs.map((item, index) => `${index + 1}. ${item.alt ? `${item.alt}：` : ""}${item.src}`).join("\n")}`
+      : "",
+    question.promptHtml ? `\n题目原始 HTML（用于保留公式、表格和图片位置）：\n${truncateText(question.promptHtml, 6000)}` : "",
+    question.materialHtml ? `\n材料原始 HTML：\n${truncateText(question.materialHtml, 4000)}` : "",
     "",
     `选项：\n${optionText}`,
+    question.optionsHtml ? `\n选项原始 HTML：\n${truncateText(question.optionsHtml, 4000)}` : "",
     "",
     `标准答案：${truncateText(question.answerText || "未提供", 2000)}`,
+    question.answerHtml ? `\n标准答案 HTML：\n${truncateText(question.answerHtml, 3000)}` : "",
     question.existingExplanationText ? `\n原题已有解析/答案补充：\n${truncateText(question.existingExplanationText, 4000)}` : "",
+    question.explanationHtml ? `\n解析 HTML：\n${truncateText(question.explanationHtml, 3000)}` : "",
   ].filter(Boolean).join("\n");
 }
 
