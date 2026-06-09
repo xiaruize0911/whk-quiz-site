@@ -1545,6 +1545,15 @@ function extractOptionBlocks(optionsHtml) {
 }
 
 function splitChoiceContent(question) {
+  const directOptionBlocks = extractOptionBlocks(question.optionsHtml || "");
+  if (Object.keys(directOptionBlocks).length >= 4) {
+    const optionHtml = ["A", "B", "C", "D", "E", "F", "G"].map((label) => directOptionBlocks[label]).filter(Boolean).join("");
+    return {
+      promptHtml: question.promptHtml || "",
+      optionsHtml: optionHtml || question.optionsHtml || "",
+    };
+  }
+
   const wrapper = document.createElement("div");
   wrapper.innerHTML = `${question.promptHtml || ""}${question.optionsHtml || ""}`;
   const promptBlocks = [];
@@ -1785,10 +1794,31 @@ function splitMaterialFromPrompt(promptHtml) {
     return { materialHtml: "", promptHtml };
   }
 
+  const explicitQuestionPattern = /[\(（]\s*[\)）]\s*(\d+)\s*[\.．、]/;
+  for (let index = 1; index < blocks.length; index += 1) {
+    const text = stripHtml(blocks[index].outerHTML || "");
+    const explicitQuestion = text.match(explicitQuestionPattern);
+    if (!explicitQuestion) continue;
+    const before = text.slice(0, explicitQuestion.index).trim();
+    const after = text.slice(explicitQuestion.index).trim();
+    const materialBlocks = blocks.slice(0, index).map((node) => node.outerHTML);
+    if (before) {
+      materialBlocks.push(`<p>${escapeHtml(before)}</p>`);
+    }
+    const materialHtml = materialBlocks.join("");
+    if (stripHtml(materialHtml).length >= 120) {
+      const questionHtml = [
+        after ? `<p>${escapeHtml(after)}</p>` : "",
+        ...blocks.slice(index + 1).map((node) => node.outerHTML),
+      ].join("");
+      return { materialHtml, promptHtml: questionHtml || promptHtml };
+    }
+  }
+
   const questionIndex = blocks.findIndex((node, index) => {
     if (index === 0) return false;
     const text = stripHtml(node.outerHTML || "");
-    return /^\s*(?:[\(（]\s*)?\d+\s*[\.．、]/.test(text)
+    return /^\s*(?:[\(（]\s*[\)）]?\s*)?\d+\s*[\.．、]/.test(text)
       || /^(What|Which|Why|How|Who|When|Where)\b/i.test(text);
   });
   if (questionIndex > 0) {
