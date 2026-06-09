@@ -107,12 +107,23 @@
           </div>
 
           <div id="subjective-actions" class="subjective-actions hidden">
+            <button id="ai-grade-btn" class="primary-btn">AI 批改</button>
             <button id="mark-correct-btn" class="success-btn">自评正确</button>
             <button id="mark-wrong-btn" class="danger-btn">自评错误</button>
           </div>
 
           <div id="feedback-box" class="feedback-box hidden"></div>
           <div id="answer-content" class="answer-panel hidden"></div>
+          <div id="ai-grading-panel" class="ai-grading-panel hidden">
+            <div class="ai-explanation-head">
+              <div>
+                <p class="eyebrow">DeepSeek</p>
+                <h3>AI 自动批改</h3>
+              </div>
+              <span id="ai-grading-meta" class="muted"></span>
+            </div>
+            <div id="ai-grading-content" class="rich-block"></div>
+          </div>
           <div id="ai-explanation-panel" class="ai-explanation-panel hidden">
             <div class="ai-explanation-head">
               <div>

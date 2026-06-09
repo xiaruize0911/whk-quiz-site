@@ -825,6 +825,7 @@ button:disabled {
 
 .feedback-box,
 .answer-panel,
+.ai-grading-panel,
 .ai-explanation-panel {
   margin-top: 18px;
   padding: 18px;
@@ -884,6 +885,11 @@ button:disabled {
   border: 1px solid rgba(47, 109, 79, 0.22);
 }
 
+.ai-grading-panel {
+  background: rgba(196, 132, 28, 0.07);
+  border: 1px solid rgba(196, 132, 28, 0.24);
+}
+
 .ai-explanation-head {
   display: flex;
   align-items: flex-start;
@@ -899,7 +905,10 @@ button:disabled {
 
 .ai-explanation-panel h3,
 .ai-explanation-panel h4,
-.ai-explanation-panel h5 {
+.ai-explanation-panel h5,
+.ai-grading-panel h3,
+.ai-grading-panel h4,
+.ai-grading-panel h5 {
   margin: 18px 0 8px;
   font-family: "Kaiti SC", "STKaiti", serif;
   line-height: 1.35;
@@ -907,20 +916,26 @@ button:disabled {
 
 .ai-explanation-panel h3:first-child,
 .ai-explanation-panel h4:first-child,
-.ai-explanation-panel h5:first-child {
+.ai-explanation-panel h5:first-child,
+.ai-grading-panel h3:first-child,
+.ai-grading-panel h4:first-child,
+.ai-grading-panel h5:first-child {
   margin-top: 0;
 }
 
-.ai-explanation-panel ul {
+.ai-explanation-panel ul,
+.ai-grading-panel ul {
   margin: 8px 0 12px;
   padding-left: 1.4em;
 }
 
-.ai-explanation-panel li {
+.ai-explanation-panel li,
+.ai-grading-panel li {
   margin: 6px 0;
 }
 
-.ai-explanation-panel code {
+.ai-explanation-panel code,
+.ai-grading-panel code {
   padding: 0.08em 0.34em;
   border-radius: 8px;
   background: rgba(22, 22, 22, 0.07);
@@ -928,7 +943,8 @@ button:disabled {
   font-size: 0.92em;
 }
 
-.ai-explanation-panel pre {
+.ai-explanation-panel pre,
+.ai-grading-panel pre {
   overflow-x: auto;
   margin: 12px 0;
   padding: 14px;
@@ -936,7 +952,8 @@ button:disabled {
   background: rgba(22, 22, 22, 0.07);
 }
 
-.ai-explanation-panel pre code {
+.ai-explanation-panel pre code,
+.ai-grading-panel pre code {
   padding: 0;
   background: transparent;
   white-space: pre;

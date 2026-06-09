@@ -5,6 +5,9 @@ const API_KEY_STORAGE_KEY = "final-drill-lab-deepseek-api-key";
 const LOCAL_AI_EXPLAIN_ENDPOINT = window.location.protocol === "file:"
   ? "http://127.0.0.1:8767/api/explain"
   : "/api/explain";
+const LOCAL_AI_GRADE_ENDPOINT = window.location.protocol === "file:"
+  ? "http://127.0.0.1:8767/api/grade-subjective"
+  : "/api/grade-subjective";
 const DEEPSEEK_CHAT_ENDPOINT = "https://api.deepseek.com/chat/completions";
 const DEEPSEEK_MODEL = "deepseek-v4-pro";
 
@@ -22,10 +25,14 @@ const defaultProgress = {
   shuffledOrder: {},
   answerDrafts: {},
   aiExplanations: {},
+  aiGrades: {},
   activeView: "practice",
 };
 
 const state = loadProgress();
+state.aiGrades = state.aiGrades || {};
+state.aiExplanations = state.aiExplanations || {};
+state.answerDrafts = state.answerDrafts || {};
 
 const subjectTabs = document.getElementById("subject-tabs");
 const statsGrid = document.getElementById("stats-grid");
@@ -47,6 +54,7 @@ const prevBtn = document.getElementById("prev-btn");
 const nextBtn = document.getElementById("next-btn");
 const revealBtn = document.getElementById("reveal-btn");
 const aiExplainBtn = document.getElementById("ai-explain-btn");
+const aiGradeBtn = document.getElementById("ai-grade-btn");
 const markCorrectBtn = document.getElementById("mark-correct-btn");
 const markWrongBtn = document.getElementById("mark-wrong-btn");
 const clearWrongbookBtn = document.getElementById("clear-wrongbook");
@@ -75,6 +83,9 @@ const imageZoomClose = document.getElementById("image-zoom-close");
 const aiExplanationPanel = document.getElementById("ai-explanation-panel");
 const aiExplanationContent = document.getElementById("ai-explanation-content");
 const aiExplanationMeta = document.getElementById("ai-explanation-meta");
+const aiGradingPanel = document.getElementById("ai-grading-panel");
+const aiGradingContent = document.getElementById("ai-grading-content");
+const aiGradingMeta = document.getElementById("ai-grading-meta");
 
 let currentQuestion = null;
 let answeredThisRound = false;
@@ -110,6 +121,7 @@ function bindEvents() {
   nextBtn.addEventListener("click", () => goToNextQuestion());
   revealBtn.addEventListener("click", () => revealAnswer(false));
   aiExplainBtn.addEventListener("click", requestAiExplanation);
+  aiGradeBtn.addEventListener("click", requestSubjectiveGrading);
   saveApiKeyBtn.addEventListener("click", saveApiKeySetting);
   clearApiKeyBtn.addEventListener("click", clearApiKeySetting);
   markCorrectBtn.addEventListener("click", () => selfMark(true));
@@ -122,7 +134,7 @@ function bindEvents() {
   imageZoomClose.addEventListener("click", closeImageZoom);
   imageZoomImg.addEventListener("click", (event) => event.stopPropagation());
   document.addEventListener("keydown", handleGlobalKeydown);
-  [promptContent, optionsRaw, answerContent, materialContent].forEach((container) => {
+  [promptContent, optionsRaw, answerContent, materialContent, aiGradingContent, aiExplanationContent].forEach((container) => {
     container.addEventListener("click", handleRichContentClick);
   });
   subjectiveInput.addEventListener("input", () => {
@@ -269,6 +281,11 @@ function resetCurrentSubjectProgress() {
       delete state.answerDrafts[id];
     }
   });
+  Object.keys(state.aiGrades || {}).forEach((id) => {
+    if (subjectQuestionIds.has(id)) {
+      delete state.aiGrades[id];
+    }
+  });
 
   delete state.sequenceCursor[subject];
   delete state.shuffledCursor[subject];
@@ -298,6 +315,9 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
     aiExplanationPanel.classList.add("hidden");
     aiExplanationContent.innerHTML = "";
     aiExplanationMeta.textContent = "";
+    aiGradingPanel.classList.add("hidden");
+    aiGradingContent.innerHTML = "";
+    aiGradingMeta.textContent = "";
     materialContent.classList.add("hidden");
     materialContent.innerHTML = "";
     renderNavButtons();
@@ -343,6 +363,7 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
   promptContent.innerHTML = materialSplit.promptHtml || "<p>题面缺失</p>";
   answerContent.innerHTML = buildAnswerPanel(currentQuestion);
   renderAiExplanation(currentQuestion);
+  renderAiGrading(currentQuestion);
   enhanceRichContent(materialContent);
   enhanceRichContent(promptContent);
   enhanceRichContent(answerContent);
@@ -357,10 +378,12 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
     choiceWrapper.classList.remove("hidden");
     inputWrapper.classList.add("hidden");
     subjectiveActions.classList.add("hidden");
+    aiGradingPanel.classList.add("hidden");
   } else {
     choiceWrapper.classList.add("hidden");
     inputWrapper.classList.remove("hidden");
     subjectiveActions.classList.remove("hidden");
+    aiGradeBtn.disabled = false;
   }
 
   renderStats();
@@ -563,6 +586,151 @@ function renderAiExplanation(question) {
   aiExplanationPanel.classList.remove("hidden");
 }
 
+function renderAiGrading(question) {
+  const cached = state.aiGrades?.[question.id];
+  aiGradeBtn.disabled = false;
+  aiGradeBtn.textContent = cached ? "显示 AI 批改" : "AI 批改";
+  aiGradingMeta.textContent = cached?.model
+    ? `${cached.model}${typeof cached.score === "number" ? ` · ${cached.score}/100` : ""}`
+    : "";
+  if (!cached?.content || question.kind === "choice") {
+    aiGradingPanel.classList.add("hidden");
+    aiGradingContent.innerHTML = "";
+    return;
+  }
+  aiGradingContent.innerHTML = formatAiExplanation(cached.content);
+  enhanceRichContent(aiGradingContent);
+  aiGradingPanel.classList.remove("hidden");
+}
+
+async function requestSubjectiveGrading() {
+  if (!currentQuestion || currentQuestion.kind === "choice") return;
+  const answer = subjectiveInput.value.trim();
+  if (!answer) {
+    feedbackBox.className = "feedback-box wrong";
+    feedbackBox.textContent = "请先在作答区输入答案，再使用 AI 批改。";
+    feedbackBox.classList.remove("hidden");
+    return;
+  }
+
+  const cached = state.aiGrades?.[currentQuestion.id];
+  if (cached?.content && cached.studentAnswer === answer) {
+    aiGradingPanel.classList.toggle("hidden");
+    return;
+  }
+
+  const apiKey = getSavedApiKey();
+  aiGradeBtn.disabled = true;
+  aiGradeBtn.textContent = "批改中...";
+  aiGradingPanel.classList.remove("hidden");
+  aiGradingMeta.textContent = "";
+  aiGradingContent.innerHTML = "<p class=\"muted\">正在批改主观题。</p>";
+
+  try {
+    const payload = await fetchSubjectiveGrading(buildAiQuestionPayload(currentQuestion), answer, apiKey);
+    const score = typeof payload.score === "number" ? payload.score : extractScoreFromGrading(payload.grading || "");
+    const isCorrect = typeof payload.isCorrect === "boolean" ? payload.isCorrect : inferCorrectFromScore(score);
+    state.aiGrades[currentQuestion.id] = {
+      content: payload.grading || "",
+      score,
+      isCorrect,
+      model: payload.model || "",
+      studentAnswer: answer,
+      createdAt: Date.now(),
+    };
+    persist();
+    renderAiGrading(currentQuestion);
+    applyAiGradingToProgress(isCorrect, score);
+  } catch (error) {
+    aiGradingMeta.textContent = "请求失败";
+    aiGradingContent.innerHTML = `<p class="muted">${escapeHtml(error.message || "AI 批改请求失败。")}</p>`;
+    aiGradeBtn.disabled = false;
+    aiGradeBtn.textContent = "AI 批改";
+  }
+}
+
+function applyAiGradingToProgress(isCorrect, score) {
+  if (!currentQuestion || answeredThisRound || typeof isCorrect !== "boolean") return;
+  answeredThisRound = true;
+  updateProgress(currentQuestion.id, isCorrect);
+  feedbackBox.className = `feedback-box ${isCorrect ? "correct" : "wrong"}`;
+  const scoreText = typeof score === "number" ? `（${score}/100）` : "";
+  feedbackBox.textContent = isCorrect
+    ? `AI 判定基本正确${scoreText}`
+    : `AI 判定需要重做${scoreText}，已加入错题优先池`;
+  feedbackBox.classList.remove("hidden");
+  revealAnswer(true);
+}
+
+async function fetchSubjectiveGrading(questionPayload, studentAnswer, apiKey) {
+  if (shouldPreferLocalProxy()) {
+    try {
+      return await fetchLocalSubjectiveGrading(questionPayload, studentAnswer, apiKey);
+    } catch (error) {
+      if (!apiKey || !(error instanceof TypeError)) {
+        throw error;
+      }
+    }
+  }
+  return fetchDeepSeekGradeDirect(questionPayload, studentAnswer, apiKey);
+}
+
+async function fetchLocalSubjectiveGrading(questionPayload, studentAnswer, apiKey) {
+  const response = await fetch(LOCAL_AI_GRADE_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      apiKey,
+      question: questionPayload,
+      studentAnswer,
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if ([404, 405, 501].includes(response.status)) {
+    throw new TypeError("Local AI proxy is unavailable");
+  }
+  if (!response.ok) {
+    throw new Error(payload.error || "AI 批改请求失败。");
+  }
+  return payload;
+}
+
+async function fetchDeepSeekGradeDirect(questionPayload, studentAnswer, apiKey) {
+  if (!apiKey) {
+    throw new Error("请先在网页左侧 AI 设置中填写并保存 DeepSeek API Key。");
+  }
+  const response = await fetch(DEEPSEEK_CHAT_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: DEEPSEEK_MODEL,
+      messages: buildDeepSeekGradingMessages(questionPayload, studentAnswer),
+      thinking: { type: "enabled" },
+      reasoning_effort: "high",
+      stream: false,
+      max_tokens: 2200,
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || "DeepSeek 请求失败。");
+  }
+  const grading = payload?.choices?.[0]?.message?.content?.trim();
+  if (!grading) {
+    throw new Error("DeepSeek 未返回批改内容。");
+  }
+  return {
+    grading,
+    score: extractScoreFromGrading(grading),
+    isCorrect: inferCorrectFromScore(extractScoreFromGrading(grading)),
+    model: payload.model || DEEPSEEK_MODEL,
+    usage: payload.usage || null,
+  };
+}
+
 async function requestAiExplanation() {
   if (!currentQuestion) return;
   const cached = state.aiExplanations?.[currentQuestion.id];
@@ -740,6 +908,51 @@ function buildDeepSeekPrompt(question) {
     `标准答案：${truncateText(question.answerText || "未提供", 2000)}`,
     question.existingExplanationText ? `\n原题已有解析/答案补充：\n${truncateText(question.existingExplanationText, 4000)}` : "",
   ].filter(Boolean).join("\n");
+}
+
+function buildDeepSeekGradingMessages(question, studentAnswer) {
+  return [
+    {
+      role: "system",
+      content: [
+        "你是一名高中老师，正在批改高二期末题库中的主观题。",
+        "批改要直白、简单，基于高中课内知识。",
+        "必须严格对照标准答案，不要因为表达不同就轻易判错，但不能放过关键概念、数值、单位、方向、步骤错误。",
+        "如果题目包含多个小问，要逐小问批改。",
+        "如果学生答案为空、跑题或只写无关内容，直接给低分。",
+        "输出必须使用 Markdown，并按以下结构：",
+        "## 总评",
+        "- 得分：X/100",
+        "- 判定：正确/基本正确/部分正确/错误",
+        "## 逐点批改",
+        "逐条说明学生答案哪里对、哪里错、缺了什么。",
+        "## 按标准答案应这样写",
+        "给出适合背诵的标准作答。",
+        "## 下次注意",
+        "用一两句话指出最该改的点。",
+        "不要编造题目中没有的信息。",
+      ].join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        buildDeepSeekPrompt(question),
+        "",
+        `学生答案：\n${truncateText(studentAnswer, 8000)}`,
+      ].join("\n"),
+    },
+  ];
+}
+
+function extractScoreFromGrading(text) {
+  const match = String(text || "").match(/得分[：:\s]*([0-9]{1,3})(?:\s*\/\s*100)?/);
+  if (!match) return null;
+  const score = Number(match[1]);
+  return Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : null;
+}
+
+function inferCorrectFromScore(score) {
+  return typeof score === "number" ? score >= 80 : null;
 }
 
 function truncateText(value, maxLength) {
