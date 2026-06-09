@@ -360,7 +360,7 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
     ? `<p class="material-label">材料</p><div class="rich-block">${materialHtml}</div>`
     : "";
   materialContent.classList.toggle("hidden", !materialSplit.materialHtml);
-  promptContent.innerHTML = materialSplit.promptHtml || "<p>题面缺失</p>";
+  promptContent.innerHTML = annotateClozeBlanks(materialSplit.promptHtml, currentQuestion) || "<p>题面缺失</p>";
   answerContent.innerHTML = buildAnswerPanel(currentQuestion);
   renderAiExplanation(currentQuestion);
   renderAiGrading(currentQuestion);
@@ -1993,8 +1993,35 @@ function markFormulaImages(container) {
   });
 }
 
+function getClozeBlankLimit(question) {
+  if (question.subject !== "英语") return 0;
+  const section = question.section || "";
+  if (/七选五/.test(section)) return 5;
+  if (/完形/.test(section)) return 15;
+  return 0;
+}
+
+function isLikelyClozeBlank(numberText, source, startIndex, limit) {
+  const blankNumber = Number(numberText);
+  if (!Number.isInteger(blankNumber) || blankNumber < 1 || blankNumber > limit) {
+    return false;
+  }
+  const after = source.slice(startIndex + numberText.length, startIndex + numberText.length + 12);
+  const left = source.slice(0, startIndex).replace(/\s+$/g, "");
+  const previousChar = left.at(-1) || "";
+  const charBeforePrevious = left.at(-2) || "";
+  if (/\d/.test(previousChar) || (previousChar === "." && /\d/.test(charBeforePrevious))) {
+    return false;
+  }
+  if (/^\s*[ap]\s*[.．]\s*m\b/i.test(after)) {
+    return false;
+  }
+  return true;
+}
+
 function annotateClozeBlanks(html, question) {
-  if (!html || question.subject !== "英语" || !/完形/.test(question.section || "")) {
+  const limit = getClozeBlankLimit(question);
+  if (!html || !limit) {
     return html || "";
   }
   const wrapper = document.createElement("div");
@@ -2004,20 +2031,36 @@ function annotateClozeBlanks(html, question) {
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
   nodes.forEach((node) => {
-    const parts = node.nodeValue.split(/(\b(?:[1-9]|1[0-9]|20)\b)/g).filter(Boolean);
-    if (parts.length <= 1) return;
-    const fragment = document.createDocumentFragment();
-    parts.forEach((part) => {
-      if (/^(?:[1-9]|1[0-9]|20)$/.test(part)) {
-        const blank = document.createElement("span");
-        const blankNumber = Number(part);
-        blank.className = `cloze-blank${blankNumber === currentBlank ? " current" : ""}`;
-        blank.textContent = `第 ${blankNumber} 空`;
-        fragment.appendChild(blank);
-      } else {
-        fragment.appendChild(document.createTextNode(part));
+    const source = node.nodeValue;
+    const matches = [];
+    const markerPattern = /(^|[^A-Za-z0-9.])([1-9]|1[0-9]|20)(?=$|[^A-Za-z0-9.])/g;
+    let match = markerPattern.exec(source);
+    while (match) {
+      const numberText = match[2];
+      const startIndex = match.index + match[1].length;
+      if (isLikelyClozeBlank(numberText, source, startIndex, limit)) {
+        matches.push({ numberText, startIndex, endIndex: startIndex + numberText.length });
       }
+      match = markerPattern.exec(source);
+    }
+    if (!matches.length) return;
+    const fragment = document.createDocumentFragment();
+    let lastIndex = 0;
+    matches.forEach(({ numberText, startIndex, endIndex }) => {
+      if (startIndex > lastIndex) {
+        fragment.appendChild(document.createTextNode(source.slice(lastIndex, startIndex)));
+      }
+      const blank = document.createElement("span");
+      const blankNumber = Number(numberText);
+      blank.className = `cloze-blank${blankNumber === currentBlank ? " current" : ""}`;
+      blank.textContent = `第 ${blankNumber} 空`;
+      blank.setAttribute("data-blank", numberText);
+      fragment.appendChild(blank);
+      lastIndex = endIndex;
     });
+    if (lastIndex < source.length) {
+      fragment.appendChild(document.createTextNode(source.slice(lastIndex)));
+    }
     node.parentNode.replaceChild(fragment, node);
   });
   return wrapper.innerHTML;

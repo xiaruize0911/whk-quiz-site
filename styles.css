@@ -752,20 +752,27 @@ button:disabled {
 }
 
 .cloze-blank {
-  display: inline-block;
-  padding: 0.04em 0.55em;
-  margin: 0 0.14em;
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.8em;
+  padding: 0.08em 0.7em;
+  margin: 0 0.18em;
   border-radius: 999px;
-  border: 1px solid rgba(31, 95, 191, 0.22);
-  background: rgba(31, 95, 191, 0.08);
-  color: var(--accent-strong);
-  font-weight: 700;
+  border: 1px solid rgba(190, 115, 0, 0.34);
+  background: #fff4c7;
+  color: #7a4b00;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: 0 1px 0 rgba(122, 75, 0, 0.08);
 }
 
 .cloze-blank.current {
-  background: rgba(31, 95, 191, 0.18);
-  border-color: rgba(31, 95, 191, 0.42);
-  outline: 2px solid rgba(31, 95, 191, 0.16);
+  background: #1f5fbf;
+  border-color: #1f5fbf;
+  color: #ffffff;
+  outline: 3px solid rgba(31, 95, 191, 0.2);
+  box-shadow: 0 8px 18px rgba(31, 95, 191, 0.18);
 }
 
 .input-label {
