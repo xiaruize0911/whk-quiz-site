@@ -495,6 +495,46 @@ button:disabled {
   line-height: 1.65;
 }
 
+.answer-review-answer p,
+.answer-review-options p,
+.answer-review-prompt p {
+  margin: 0;
+}
+
+.answer-review-answer p + p,
+.answer-review-options p + p,
+.answer-review-prompt p + p {
+  margin-top: 6px;
+}
+
+.answer-review-answer ul,
+.answer-review-answer ol,
+.answer-review-options ul,
+.answer-review-options ol,
+.answer-review-prompt ul,
+.answer-review-prompt ol {
+  margin: 4px 0 0 1.2em;
+  padding: 0;
+}
+
+.answer-review-answer code,
+.answer-review-options code,
+.answer-review-prompt code {
+  padding: 0.08em 0.32em;
+  border-radius: 6px;
+  background: rgba(16, 24, 40, 0.08);
+  font-size: 0.95em;
+}
+
+.answer-review-answer pre {
+  overflow-x: auto;
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(16, 24, 40, 0.08);
+  font-weight: 500;
+}
+
 .answer-keywords {
   display: flex;
   flex-wrap: wrap;

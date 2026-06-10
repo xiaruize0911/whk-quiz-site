@@ -134,7 +134,7 @@ function bindEvents() {
   imageZoomClose.addEventListener("click", closeImageZoom);
   imageZoomImg.addEventListener("click", (event) => event.stopPropagation());
   document.addEventListener("keydown", handleGlobalKeydown);
-  [promptContent, optionsRaw, answerContent, materialContent, aiGradingContent, aiExplanationContent].forEach((container) => {
+  [promptContent, optionsRaw, answerContent, materialContent, aiGradingContent, aiExplanationContent, answerReviewList].forEach((container) => {
     container.addEventListener("click", handleRichContentClick);
   });
   subjectiveInput.addEventListener("input", () => {
@@ -1277,9 +1277,9 @@ function renderAnswerReview() {
             <span>${question.kind === "choice" ? "选择题" : "主观题"}</span>
           </div>
           ${answer.keywords.length ? `<div class="answer-keywords">${answer.keywords.map((keyword) => `<span>${escapeHtml(keyword)}</span>`).join("")}</div>` : ""}
-          <p class="answer-review-answer">${escapeHtml(answer.displayAnswer)}</p>
-          ${answer.options.length ? `<p class="answer-review-options">${escapeHtml(answer.options.join("；"))}</p>` : ""}
-          ${answer.briefPrompt ? `<p class="answer-review-prompt">${escapeHtml(answer.briefPrompt)}</p>` : ""}
+          <div class="answer-review-answer">${renderMarkdownBlock(answer.displayAnswer)}</div>
+          ${answer.options.length ? `<div class="answer-review-options">${renderInlineMarkdown(answer.options.join("；"))}</div>` : ""}
+          ${answer.briefPrompt ? `<div class="answer-review-prompt">${renderInlineMarkdown(answer.briefPrompt)}</div>` : ""}
         </div>
       `;
       const jumpBtn = document.createElement("button");
@@ -1296,6 +1296,7 @@ function renderAnswerReview() {
     section.appendChild(list);
     answerReviewList.appendChild(section);
   });
+  enhanceRichContent(answerReviewList);
 }
 
 function groupQuestionsForAnswerReview(questions) {
@@ -1314,7 +1315,7 @@ function groupQuestionsForAnswerReview(questions) {
 }
 
 function getAnswerReviewItem(question) {
-  const answerText = cleanAnswerText(
+  const answerText = cleanAnswerReviewText(
     question.answerText
       || stripHtml(question.answerHtml)
       || recoverEmbeddedAnswer(question),
@@ -1331,6 +1332,10 @@ function getAnswerReviewItem(question) {
     options: getChoiceOptionsText(question),
     missing: !answerText,
   };
+}
+
+function renderMarkdownBlock(value) {
+  return formatAiExplanation(String(value || "").trim());
 }
 
 function getChoiceAnswerText(question, choiceAnswer) {
@@ -1489,6 +1494,17 @@ function cleanAnswerText(value) {
   return String(value || "")
     .replace(/^【?答案】?\s*[:：]?/u, "")
     .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanAnswerReviewText(value) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/^【?答案】?\s*[:：]?/u, "")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
