@@ -102,30 +102,35 @@ async function handleExplain(request, response) {
       ],
       thinking: { type: "enabled" },
       reasoning_effort: "high",
-      stream: false,
-      max_tokens: 2400,
+      stream: true,
     }),
   });
 
-  const payload = await upstreamResponse.json().catch(() => null);
   if (!upstreamResponse.ok) {
+    const payload = await upstreamResponse.json().catch(() => null);
     sendJson(response, upstreamResponse.status, {
       error: payload?.error?.message || "DeepSeek 请求失败。",
     });
     return;
   }
 
-  const explanation = payload?.choices?.[0]?.message?.content?.trim();
-  if (!explanation) {
-    sendJson(response, 502, { error: "DeepSeek 未返回解析内容。" });
+  response.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+  });
+  if (!upstreamResponse.body) {
+    response.write("data: {\"error\":\"DeepSeek 未返回流式响应。\"}\n\n");
+    response.end();
     return;
   }
-
-  sendJson(response, 200, {
-    explanation,
-    model: payload.model || DEEPSEEK_MODEL,
-    usage: payload.usage || null,
-  });
+  for await (const chunk of upstreamResponse.body) {
+    response.write(chunk);
+  }
+  response.end();
 }
 
 async function handleGradeSubjective(request, response) {
@@ -207,27 +212,27 @@ function sanitizeQuestion(question) {
     label: String(question.label || ""),
     section: String(question.section || ""),
     kind: String(question.kind || ""),
-    promptText: truncate(String(question.promptText || ""), 8000),
-    materialText: truncate(String(question.materialText || ""), 6000),
-    promptHtml: truncate(String(question.promptHtml || ""), 12000),
-    materialHtml: truncate(String(question.materialHtml || ""), 8000),
-    optionsHtml: truncate(String(question.optionsHtml || ""), 8000),
+    promptText: String(question.promptText || ""),
+    materialText: String(question.materialText || ""),
+    promptHtml: String(question.promptHtml || ""),
+    materialHtml: String(question.materialHtml || ""),
+    optionsHtml: String(question.optionsHtml || ""),
     imageRefs: Array.isArray(question.imageRefs)
-      ? question.imageRefs.slice(0, 12).map((item) => ({
-          src: truncate(String(item.src || ""), 500),
-          alt: truncate(String(item.alt || ""), 500),
+      ? question.imageRefs.map((item) => ({
+          src: String(item.src || ""),
+          alt: String(item.alt || ""),
         }))
       : [],
     options: Array.isArray(question.options)
-      ? question.options.slice(0, 8).map((option) => ({
+      ? question.options.map((option) => ({
           label: String(option.label || ""),
-          text: truncate(String(option.text || ""), 2000),
+          text: String(option.text || ""),
         }))
       : [],
-    answerText: truncate(String(question.answerText || ""), 2000),
-    answerHtml: truncate(String(question.answerHtml || ""), 6000),
-    existingExplanationText: truncate(String(question.existingExplanationText || ""), 4000),
-    explanationHtml: truncate(String(question.explanationHtml || ""), 6000),
+    answerText: String(question.answerText || ""),
+    answerHtml: String(question.answerHtml || ""),
+    existingExplanationText: String(question.existingExplanationText || ""),
+    explanationHtml: String(question.explanationHtml || ""),
   };
 }
 
@@ -316,10 +321,6 @@ function readJsonBody(request) {
     let data = "";
     request.on("data", (chunk) => {
       data += chunk;
-      if (data.length > 256 * 1024) {
-        reject(new Error("Request body too large"));
-        request.destroy();
-      }
     });
     request.on("end", () => {
       try {

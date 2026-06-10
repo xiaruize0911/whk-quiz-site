@@ -748,9 +748,14 @@ async function requestAiExplanation() {
   aiExplanationContent.innerHTML = "<p class=\"muted\">正在生成详细解析。</p>";
 
   try {
-    const payload = await fetchAiExplanation(buildAiQuestionPayload(currentQuestion), apiKey);
+    let streamedContent = "";
+    const payload = await fetchAiExplanation(buildAiQuestionPayload(currentQuestion), apiKey, (chunk) => {
+      streamedContent += chunk;
+      aiExplanationContent.innerHTML = formatAiExplanation(streamedContent);
+      enhanceRichContent(aiExplanationContent);
+    });
     state.aiExplanations[currentQuestion.id] = {
-      content: payload.explanation || "",
+      content: payload.explanation || streamedContent,
       model: payload.model || "",
       createdAt: Date.now(),
     };
@@ -764,20 +769,20 @@ async function requestAiExplanation() {
   }
 }
 
-async function fetchAiExplanation(questionPayload, apiKey) {
+async function fetchAiExplanation(questionPayload, apiKey, onChunk) {
   if (shouldPreferLocalProxy()) {
     try {
-      return await fetchLocalAiExplanation(questionPayload, apiKey);
+      return await fetchLocalAiExplanation(questionPayload, apiKey, onChunk);
     } catch (error) {
       if (!apiKey || !(error instanceof TypeError)) {
         throw error;
       }
     }
   }
-  return fetchDeepSeekDirect(questionPayload, apiKey);
+  return fetchDeepSeekDirect(questionPayload, apiKey, onChunk);
 }
 
-async function fetchLocalAiExplanation(questionPayload, apiKey) {
+async function fetchLocalAiExplanation(questionPayload, apiKey, onChunk) {
   const response = await fetch(LOCAL_AI_EXPLAIN_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -786,17 +791,21 @@ async function fetchLocalAiExplanation(questionPayload, apiKey) {
         question: questionPayload,
       }),
   });
-  const payload = await response.json().catch(() => ({}));
   if ([404, 405, 501].includes(response.status)) {
     throw new TypeError("Local AI proxy is unavailable");
   }
   if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
     throw new Error(payload.error || "AI 解析请求失败。");
   }
+  if (response.headers.get("Content-Type")?.includes("text/event-stream") && response.body) {
+    return readDeepSeekStream(response, onChunk);
+  }
+  const payload = await response.json().catch(() => ({}));
   return payload;
 }
 
-async function fetchDeepSeekDirect(questionPayload, apiKey) {
+async function fetchDeepSeekDirect(questionPayload, apiKey, onChunk) {
   if (!apiKey) {
     throw new Error("请先在网页左侧 AI 设置中填写并保存 DeepSeek API Key。");
   }
@@ -811,22 +820,76 @@ async function fetchDeepSeekDirect(questionPayload, apiKey) {
       messages: buildDeepSeekMessages(questionPayload),
       thinking: { type: "enabled" },
       reasoning_effort: "high",
-      stream: false,
-      max_tokens: 2400,
+      stream: true,
     }),
   });
-  const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
     throw new Error(payload?.error?.message || "DeepSeek 请求失败。");
   }
-  const explanation = payload?.choices?.[0]?.message?.content?.trim();
+  return readDeepSeekStream(response, onChunk);
+}
+
+async function readDeepSeekStream(response, onChunk) {
+  if (!response.body) {
+    throw new Error("当前浏览器不支持流式输出。");
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let explanation = "";
+  let model = DEEPSEEK_MODEL;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || "";
+    lines.forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) return;
+      const data = trimmed.slice(5).trim();
+      if (!data || data === "[DONE]") return;
+      let payload;
+      try {
+        payload = JSON.parse(data);
+      } catch {
+        return;
+      }
+      if (payload.model) model = payload.model;
+      const delta = payload.choices?.[0]?.delta?.content || "";
+      if (!delta) return;
+      explanation += delta;
+      onChunk?.(delta);
+    });
+  }
+
+  const tail = buffer.trim();
+  if (tail.startsWith("data:")) {
+    const data = tail.slice(5).trim();
+    if (data && data !== "[DONE]") {
+      try {
+        const payload = JSON.parse(data);
+        const delta = payload.choices?.[0]?.delta?.content || "";
+        if (payload.model) model = payload.model;
+        if (delta) {
+          explanation += delta;
+          onChunk?.(delta);
+        }
+      } catch {
+        // Ignore incomplete trailing SSE fragments.
+      }
+    }
+  }
+
   if (!explanation) {
     throw new Error("DeepSeek 未返回解析内容。");
   }
   return {
-    explanation,
-    model: payload.model || DEEPSEEK_MODEL,
-    usage: payload.usage || null,
+    explanation: explanation.trim(),
+    model,
+    usage: null,
   };
 }
 
@@ -863,15 +926,15 @@ function buildAiQuestionPayload(question) {
     label: question.label || question.number || "",
     materialText: stripHtml(materialHtml),
     promptText: stripHtml(promptHtml),
-    promptHtml: truncateText(promptHtml, 12000),
-    materialHtml: truncateText(materialHtml, 8000),
-    optionsHtml: truncateText(optionsHtml, 8000),
+    promptHtml,
+    materialHtml,
+    optionsHtml,
     imageRefs: extractQuestionImageRefs(`${materialHtml}${promptHtml}${optionsHtml}${question.answerHtml || ""}${question.explanationHtml || ""}`),
     options,
     answerText: stripHtml(question.answerHtml) || question.answerText || "",
-    answerHtml: truncateText(question.answerHtml || "", 6000),
+    answerHtml: question.answerHtml || "",
     existingExplanationText: stripHtml(question.explanationHtml),
-    explanationHtml: truncateText(question.explanationHtml || "", 6000),
+    explanationHtml: question.explanationHtml || "",
   };
 }
 
@@ -881,8 +944,7 @@ function extractQuestionImageRefs(html) {
       src: match[1],
       alt: (match[0].match(/\balt="([^"]*)"/) || [])[1] || "",
     }))
-    .filter((item, index, items) => item.src && items.findIndex((other) => other.src === item.src) === index)
-    .slice(0, 12);
+    .filter((item, index, items) => item.src && items.findIndex((other) => other.src === item.src) === index);
 }
 
 function buildDeepSeekMessages(question) {
@@ -917,28 +979,28 @@ function buildDeepSeekPrompt(question) {
     : "无标准选项。";
 
   return [
-    `题目 ID：${truncateText(question.id, 120)}`,
-    `学科：${truncateText(question.subject, 40)}`,
-    question.source ? `来源：${truncateText(question.source, 160)}` : "",
-    question.label ? `题号：${truncateText(question.label, 40)}` : "",
+    `题目 ID：${question.id}`,
+    `学科：${question.subject}`,
+    question.source ? `来源：${question.source}` : "",
+    question.label ? `题号：${question.label}` : "",
     `题型：${question.kind === "choice" ? "选择题" : "主观题"}`,
-    `栏目：${truncateText(question.section || "未标注", 120)}`,
+    `栏目：${question.section || "未标注"}`,
     "",
-    question.materialText ? `材料：\n${truncateText(question.materialText, 6000)}\n` : "",
-    `题面：\n${truncateText(question.promptText, 8000)}`,
+    question.materialText ? `材料：\n${question.materialText}\n` : "",
+    `题面：\n${question.promptText}`,
     question.imageRefs?.length
       ? `\n图片/图表引用：\n${question.imageRefs.map((item, index) => `${index + 1}. ${item.alt ? `${item.alt}：` : ""}${item.src}`).join("\n")}`
       : "",
-    question.promptHtml ? `\n题目原始 HTML（用于保留公式、表格和图片位置）：\n${truncateText(question.promptHtml, 6000)}` : "",
-    question.materialHtml ? `\n材料原始 HTML：\n${truncateText(question.materialHtml, 4000)}` : "",
+    question.promptHtml ? `\n题目原始 HTML（用于保留公式、表格和图片位置）：\n${question.promptHtml}` : "",
+    question.materialHtml ? `\n材料原始 HTML：\n${question.materialHtml}` : "",
     "",
     `选项：\n${optionText}`,
-    question.optionsHtml ? `\n选项原始 HTML：\n${truncateText(question.optionsHtml, 4000)}` : "",
+    question.optionsHtml ? `\n选项原始 HTML：\n${question.optionsHtml}` : "",
     "",
-    `标准答案：${truncateText(question.answerText || "未提供", 2000)}`,
-    question.answerHtml ? `\n标准答案 HTML：\n${truncateText(question.answerHtml, 3000)}` : "",
-    question.existingExplanationText ? `\n原题已有解析/答案补充：\n${truncateText(question.existingExplanationText, 4000)}` : "",
-    question.explanationHtml ? `\n解析 HTML：\n${truncateText(question.explanationHtml, 3000)}` : "",
+    `标准答案：${question.answerText || "未提供"}`,
+    question.answerHtml ? `\n标准答案 HTML：\n${question.answerHtml}` : "",
+    question.existingExplanationText ? `\n原题已有解析/答案补充：\n${question.existingExplanationText}` : "",
+    question.explanationHtml ? `\n解析 HTML：\n${question.explanationHtml}` : "",
   ].filter(Boolean).join("\n");
 }
 
