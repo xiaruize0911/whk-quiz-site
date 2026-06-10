@@ -1630,6 +1630,7 @@ function getWrongTier(level) {
 }
 
 function renderWrongbook() {
+  cleanupWrongBook();
   const subjectQuestions = getCurrentSubjectQuestions({ filtered: true });
   const questionMap = new Map(subjectQuestions.map((question) => [question.id, question]));
   const wrongQuestions = Array.from(new Set(state.wrongBook))
@@ -1643,11 +1644,6 @@ function renderWrongbook() {
         || (progressB.wrong || 0) - (progressA.wrong || 0)
         || (progressB.lastSeenAt || 0) - (progressA.lastSeenAt || 0);
     });
-  const normalizedWrongIds = wrongQuestions.map((question) => question.id);
-  if (normalizedWrongIds.length !== state.wrongBook.length || normalizedWrongIds.some((id, index) => id !== state.wrongBook[index])) {
-    state.wrongBook = normalizedWrongIds;
-    persist();
-  }
 
   if (!wrongQuestions.length) {
     wrongbookList.innerHTML = `<p class="muted">当前学科还没有需要强化的错题。</p>`;
@@ -1712,6 +1708,22 @@ function renderWrongbook() {
     });
     wrongbookList.appendChild(groupEl);
   });
+}
+
+function cleanupWrongBook() {
+  const allQuestionIds = new Set(questionBank.allQuestions.map((question) => question.id));
+  const seen = new Set();
+  const normalizedWrongIds = [];
+  state.wrongBook.forEach((id) => {
+    if (seen.has(id) || !allQuestionIds.has(id)) return;
+    if (getWrongReviewLevel(getProgressFor(id)) <= 0) return;
+    seen.add(id);
+    normalizedWrongIds.push(id);
+  });
+  if (normalizedWrongIds.length !== state.wrongBook.length || normalizedWrongIds.some((id, index) => id !== state.wrongBook[index])) {
+    state.wrongBook = normalizedWrongIds;
+    persist();
+  }
 }
 
 function normalizeAnswer(answerText) {
