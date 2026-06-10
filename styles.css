@@ -698,6 +698,18 @@ button:disabled {
   vertical-align: middle;
 }
 
+.rich-block sub,
+.rich-block sup,
+.answer-panel sub,
+.answer-panel sup,
+.answer-review-list sub,
+.answer-review-list sup,
+.option-card sub,
+.option-card sup {
+  font-size: 0.72em;
+  line-height: 0;
+}
+
 .math-frac {
   flex-direction: column;
   font-size: 0.95em;
@@ -734,6 +746,22 @@ button:disabled {
   line-height: 1;
   text-align: center;
   font-style: normal;
+}
+
+.math-script-pair {
+  display: inline-grid;
+  grid-template-rows: 0.78em 0.78em;
+  align-items: center;
+  justify-items: start;
+  min-width: 0.45em;
+  margin-left: -0.04em;
+  line-height: 1;
+}
+
+.math-script-pair sup,
+.math-script-pair sub {
+  font-size: 0.72em;
+  line-height: 1;
 }
 
 .rich-block p:has(> img:only-child),

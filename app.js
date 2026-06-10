@@ -1944,6 +1944,7 @@ function chooseOptionLabelSequence(matches) {
 
 function enhanceRichContent(container) {
   renderInlineLatex(container);
+  renderMathScripts(container);
   markFormulaImages(container);
 }
 
@@ -1973,16 +1974,22 @@ function renderInlineLatex(container) {
 function latexToElement(source) {
   const span = document.createElement("span");
   span.className = "math-inline";
+  const scriptPair = source.match(/^oal\(([^,]+),([^)]+)\)$/);
+  if (scriptPair) {
+    span.classList.add("math-script-pair");
+    span.innerHTML = `<sup>${escapeHtml(formatMathText(scriptPair[1]))}</sup><sub>${escapeHtml(formatMathText(scriptPair[2]))}</sub>`;
+    return span;
+  }
   const frac = source.match(/^\\frac\{(.+)\}\{(.+)\}$/);
   if (frac) {
     span.classList.add("math-frac");
-    span.innerHTML = `<span>${escapeHtml(formatMathText(frac[1]))}</span><span>${escapeHtml(formatMathText(frac[2]))}</span>`;
+    span.innerHTML = `<span>${formatMathHtml(frac[1])}</span><span>${formatMathHtml(frac[2])}</span>`;
     return span;
   }
   const sqrt = source.match(/^\\sqrt\{([^{}]+)\}$/);
   if (sqrt) {
     span.classList.add("math-root");
-    span.textContent = `√${sqrt[1]}`;
+    span.innerHTML = `√${formatMathHtml(sqrt[1])}`;
     return span;
   }
   const vector = source.match(/^\\overrightarrow\{([^{}]+)\}$/);
@@ -1991,12 +1998,55 @@ function latexToElement(source) {
     span.textContent = vector[1];
     return span;
   }
-  span.textContent = source;
+  span.innerHTML = formatMathHtml(source);
   return span;
 }
 
 function formatMathText(source) {
   return String(source).replace(/\\sqrt\{([^{}]+)\}/g, "√$1");
+}
+
+function formatMathHtml(source) {
+  return renderMathScriptHtml(escapeHtml(formatMathText(source)));
+}
+
+function renderMathScripts(container) {
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!parent || parent.closest(".math-inline, code, pre, textarea, button")) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return shouldRenderMathScripts(node.nodeValue)
+        ? NodeFilter.FILTER_ACCEPT
+        : NodeFilter.FILTER_REJECT;
+    },
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach((node) => {
+    const html = renderMathScriptHtml(escapeHtml(node.nodeValue));
+    if (html === escapeHtml(node.nodeValue)) return;
+    const wrapper = document.createElement("span");
+    wrapper.innerHTML = html;
+    const fragment = document.createDocumentFragment();
+    while (wrapper.firstChild) fragment.appendChild(wrapper.firstChild);
+    node.parentNode.replaceChild(fragment, node);
+  });
+}
+
+function shouldRenderMathScripts(text) {
+  return /(?:[A-Z][A-Z′'’]*[123]|[Rrlh][23]|[a-z][01]|(?:cm|mm|m|g\/cm)[23]|oal\()/u.test(text || "");
+}
+
+function renderMathScriptHtml(html) {
+  return String(html || "")
+    .replace(/oal\(([^,]+),([^)]+)\)/g, "<sup>$1</sup><sub>$2</sub>")
+    .replace(/\b([A-Z][A-Z′'’]{1,})([23])\b/g, "$1<sup>$2</sup>")
+    .replace(/\b([Rrlh])([23])\b/g, "$1<sup>$2</sup>")
+    .replace(/\b((?:cm|mm|m|g\/cm))([23])\b/g, "$1<sup>$2</sup>")
+    .replace(/([A-Z])1(?=[A-Z]|[^A-Za-z0-9]|$)/g, "$1<sub>1</sub>")
+    .replace(/\b([a-z])([01])\b/g, "$1<sub>$2</sub>");
 }
 
 function markFormulaImages(container) {
