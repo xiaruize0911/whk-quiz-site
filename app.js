@@ -1,6 +1,6 @@
 const questionBank = window.__QUESTION_BANK__ || { subjects: {}, allQuestions: [] };
 
-const STORAGE_KEY = "final-drill-lab-v1";
+const STORAGE_KEY = "g3-midterm-drill-lab-v1";
 const API_KEY_STORAGE_KEY = "final-drill-lab-deepseek-api-key";
 const LOCAL_AI_EXPLAIN_ENDPOINT = window.location.protocol === "file:"
   ? "http://127.0.0.1:8767/api/explain"
@@ -952,7 +952,7 @@ function buildDeepSeekMessages(question) {
     {
       role: "system",
       content: [
-        "你是一名高中老师，正在给高二学生讲期末题。",
+        "你是一名高中老师，正在给高三学生讲期中题。",
         "解释要直白、简单，默认学生只掌握高中课内知识。",
         "不要使用大学、竞赛或超纲方法；如果原题只能用图判断，要直接说明需要看图。",
         "少用术语，必须用术语时先用一句话解释它是什么意思。",
@@ -1009,7 +1009,7 @@ function buildDeepSeekGradingMessages(question, studentAnswer) {
     {
       role: "system",
       content: [
-        "你是一名高中老师，正在批改高二期末题库中的主观题。",
+        "你是一名高中老师，正在批改高三期中题库中的主观题。",
         "批改要直白、简单，基于高中课内知识。",
         "必须严格对照标准答案，不要因为表达不同就轻易判错，但不能放过关键概念、数值、单位、方向、步骤错误。",
         "如果题目包含多个小问，要逐小问批改。",
