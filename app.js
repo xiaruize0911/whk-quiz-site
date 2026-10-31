@@ -85,6 +85,10 @@ const exportProgressBtn = document.getElementById("export-progress-btn");
 const importProgressBtn = document.getElementById("import-progress-btn");
 const importProgressInput = document.getElementById("import-progress-input");
 const backupStatus = document.getElementById("backup-status");
+const keyboardHelp = document.getElementById("keyboard-help");
+const keyboardHelpToggle = document.getElementById("keyboard-help-toggle");
+const answerReviewSearch = document.getElementById("answer-review-search");
+const answerReviewCoverBtn = document.getElementById("answer-review-cover-btn");
 const practiceView = document.getElementById("practice-view");
 const ledgerView = document.getElementById("ledger-view");
 const practiceViewBtn = document.getElementById("practice-view-btn");
@@ -154,6 +158,23 @@ function bindEvents() {
   exportProgressBtn.addEventListener("click", exportProgress);
   importProgressBtn.addEventListener("click", () => importProgressInput.click());
   importProgressInput.addEventListener("change", importProgress);
+  keyboardHelpToggle.addEventListener("click", () => {
+    state.showShortcuts = !state.showShortcuts;
+    persist();
+    renderKeyboardHelp();
+  });
+  answerReviewSearch.addEventListener("input", () => renderAnswerReview());
+  answerReviewCoverBtn.addEventListener("click", () => {
+    state.coverAnswers = !state.coverAnswers;
+    persist();
+    renderAnswerReview();
+  });
+  answerReviewList.addEventListener("click", (event) => {
+    const answer = event.target.closest?.(".answer-review-answer");
+    if (answer && answerReviewList.classList.contains("covered")) {
+      answer.classList.toggle("revealed");
+    }
+  });
   practiceViewBtn.addEventListener("click", () => switchView("practice"));
   ledgerViewBtn.addEventListener("click", () => switchView("ledger"));
   answerReviewViewBtn.addEventListener("click", () => switchView("answer-review"));
@@ -291,6 +312,22 @@ function renderModeButtons() {
   orderButtons.forEach((button) => {
     button.classList.toggle("active", button.dataset.order === state.order);
   });
+}
+
+function renderKeyboardHelp() {
+  keyboardHelpToggle.setAttribute("aria-expanded", String(Boolean(state.showShortcuts)));
+  keyboardHelpToggle.classList.toggle("active", Boolean(state.showShortcuts));
+  keyboardHelp.classList.toggle("hidden", !state.showShortcuts);
+  if (!state.showShortcuts || !currentQuestion) return;
+  const keys = [["←", "上一题"], ["→ / Space", "下一题"]];
+  if (currentQuestion.kind === "choice") {
+    const labels = Array.from(optionsRaw.querySelectorAll("[data-choice-label]")).map((node) => node.dataset.choiceLabel);
+    const count = labels.length || (currentQuestion.optionLabels || []).length || 4;
+    keys.push([`A-${String.fromCharCode(64 + count)} / 1-${count}`, "选择选项"]);
+  } else {
+    keys.push(["Y", "全对"], ["P", "部分对"], ["N", "不会"]);
+  }
+  keyboardHelp.innerHTML = keys.map(([key, label]) => `<span><kbd>${key}</kbd> ${label}</span>`).join("");
 }
 
 function getQuestionTopic(question) {
@@ -436,6 +473,7 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
   if (state.currentSubject !== currentQuestion.subject) {
     state.currentSubject = currentQuestion.subject;
     renderSubjects();
+    renderTopicSelect();
   }
 
   if (pushHistory) {
@@ -463,7 +501,7 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
         promptHtml: `${currentQuestion.promptHtml || ""}${currentQuestion.optionsHtml || ""}`,
         optionsHtml: "",
       };
-  const materialSplit = splitMaterialFromPrompt(choiceContent.promptHtml || "");
+  const materialSplit = splitMaterialFromPrompt(choiceContent.promptHtml || "", currentQuestion);
   const materialHtml = annotateClozeBlanks(materialSplit.materialHtml, currentQuestion);
   materialContent.innerHTML = materialHtml
     ? `<p class="material-label">材料</p><div class="rich-block">${materialHtml}</div>`
@@ -485,6 +523,7 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
   feedbackBox.textContent = "";
   feedbackBox.className = "feedback-box hidden";
 
+  renderKeyboardHelp();
   if (currentQuestion.kind === "choice") {
     renderChoiceQuestion(currentQuestion, choiceContent.optionsHtml);
     choiceWrapper.classList.remove("hidden");
@@ -512,6 +551,7 @@ function openNextQuestion(forceQuestion = null) {
 
 function renderChoiceQuestion(question, optionsHtml) {
   const optionMap = getQuestionOptions(question, optionsHtml);
+  optionsRaw.classList.remove("answered");
   optionsRaw.innerHTML = Object.keys(optionMap)
     .map((label) => `
       <div class="option-choice" role="button" tabindex="0" data-choice-label="${label}">
@@ -520,6 +560,10 @@ function renderChoiceQuestion(question, optionsHtml) {
       </div>`)
     .join("");
   enhanceRichContent(optionsRaw);
+  const bodies = Array.from(optionsRaw.querySelectorAll(".option-body"));
+  const pictureOnly = bodies.length > 0
+    && bodies.every((body) => !body.textContent.trim() && body.querySelector('img[alt^="选项"]'));
+  optionsRaw.classList.toggle("picture-options", pictureOnly);
 }
 
 function stripOptionLabel(html, label) {
@@ -1096,7 +1140,7 @@ function buildAiQuestionPayload(question) {
         promptHtml: `${question.promptHtml || ""}${question.optionsHtml || ""}`,
         optionsHtml: "",
       };
-  const materialSplit = splitMaterialFromPrompt(choiceContent.promptHtml || "");
+  const materialSplit = splitMaterialFromPrompt(choiceContent.promptHtml || "", question);
   const promptHtml = materialSplit.promptHtml || choiceContent.promptHtml || question.promptHtml || "";
   const materialHtml = materialSplit.materialHtml || "";
   const optionsHtml = choiceContent.optionsHtml || "";
@@ -1573,17 +1617,33 @@ async function importProgress() {
   }
 }
 
+function getAnswerReviewQuestions() {
+  const topic = getCurrentTopic();
+  const query = answerReviewSearch.value.trim().toLowerCase();
+  return getCurrentSubjectQuestions().filter((question) => {
+    if (topic && getQuestionTopic(question) !== topic) return false;
+    if (!query) return true;
+    const haystack = `${question.label} ${getQuestionTopic(question)} ${stripHtml(question.promptHtml)} ${stripHtml(question.optionsHtml)} ${stripHtml(question.answerHtml)}`;
+    return haystack.toLowerCase().includes(query);
+  });
+}
+
 function renderAnswerReview() {
   if (state.activeView !== "answer-review") return;
   if (!answerReviewList || !answerReviewSummary) return;
-  const questions = getCurrentSubjectQuestions();
+  const questions = getAnswerReviewQuestions();
+  const topic = getCurrentTopic();
+  answerReviewList.classList.toggle("covered", Boolean(state.coverAnswers));
+  answerReviewPlainText.classList.toggle("hidden", Boolean(state.coverAnswers));
+  answerReviewCoverBtn.classList.toggle("active", Boolean(state.coverAnswers));
+  answerReviewCoverBtn.textContent = state.coverAnswers ? "显示全部答案" : "遮住答案自测";
   const choiceCount = questions.filter((question) => question.kind === "choice").length;
   const subjectiveCount = questions.length - choiceCount;
   const missingCount = questions.filter((question) => getAnswerReviewItem(question).missing).length;
   const groups = groupQuestionsForAnswerReview(questions);
 
   answerReviewSummary.innerHTML = [
-    `<span>${state.currentSubject}</span>`,
+    `<span>${state.currentSubject}${topic ? ` · ${escapeHtml(topic)}` : ""}</span>`,
     `<span>共 ${questions.length} 题</span>`,
     `<span>选择 ${choiceCount}</span>`,
     `<span>主观 ${subjectiveCount}</span>`,
@@ -1594,7 +1654,7 @@ function renderAnswerReview() {
 
   answerReviewList.innerHTML = "";
   if (!questions.length) {
-    answerReviewList.innerHTML = `<p class="muted">当前学科没有可整理的题目。</p>`;
+    answerReviewList.innerHTML = `<p class="muted">没有符合条件的题目。</p>`;
     copyAnswerReviewBtn.disabled = true;
     return;
   }
@@ -1740,7 +1800,7 @@ function buildAnswerReviewPrompt(question) {
         promptHtml: `${question.promptHtml || ""}${question.optionsHtml || ""}`,
         optionsHtml: "",
       };
-  const materialSplit = splitMaterialFromPrompt(choiceContent.promptHtml || "");
+  const materialSplit = splitMaterialFromPrompt(choiceContent.promptHtml || "", question);
   const promptText = stripHtml(materialSplit.promptHtml || choiceContent.promptHtml || question.promptHtml);
   return truncateText(promptText, 120);
 }
@@ -1752,7 +1812,7 @@ function buildAnswerKeywords(question) {
         promptHtml: `${question.promptHtml || ""}${question.optionsHtml || ""}`,
         optionsHtml: "",
       };
-  const materialSplit = splitMaterialFromPrompt(choiceContent.promptHtml || "");
+  const materialSplit = splitMaterialFromPrompt(choiceContent.promptHtml || "", question);
   const source = stripHtml(`${materialSplit.promptHtml || choiceContent.promptHtml || question.promptHtml} ${materialSplit.materialHtml || ""}`);
   const cleaned = source
     .replace(/[A-G]\s*[\.．、]\s*/g, " ")
@@ -1794,8 +1854,9 @@ function scoreKeyword(token) {
 }
 
 function buildAnswerReviewText() {
-  const questions = getCurrentSubjectQuestions();
-  const lines = [`${state.currentSubject}高频背答案表`, `共 ${questions.length} 题`, ""];
+  const questions = getAnswerReviewQuestions();
+  const topic = getCurrentTopic();
+  const lines = [`${state.currentSubject}${topic ? `·${topic}` : ""}高频背答案表`, `共 ${questions.length} 题`, ""];
   groupQuestionsForAnswerReview(questions).forEach((group) => {
     lines.push(`【${group.title}】`);
     group.questions.forEach((question) => {
@@ -1821,13 +1882,13 @@ async function copyAnswerReviewText() {
   answerReviewPlainText.value = text;
   try {
     await navigator.clipboard.writeText(text);
-    answerReviewCopyStatus.textContent = "已复制当前学科答案。";
+    answerReviewCopyStatus.textContent = "已复制当前列表的答案。";
   } catch (error) {
     answerReviewPlainText.focus();
     answerReviewPlainText.select();
     const copied = document.execCommand("copy");
     answerReviewCopyStatus.textContent = copied
-      ? "已复制当前学科答案。"
+      ? "已复制当前列表的答案。"
       : "浏览器阻止自动复制，已选中下方纯文本答案。";
   }
 }
@@ -2528,7 +2589,10 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-function splitMaterialFromPrompt(promptHtml) {
+function splitMaterialFromPrompt(promptHtml, question = null) {
+  if (question?.materialHtml) {
+    return { materialHtml: question.materialHtml, promptHtml };
+  }
   const wrapper = document.createElement("div");
   wrapper.innerHTML = promptHtml || "";
   const blocks = Array.from(wrapper.children);
@@ -2574,11 +2638,10 @@ function splitMaterialFromPrompt(promptHtml) {
   const firstText = stripHtml(blocks[0].outerHTML || "");
   const hasMaterialLead = firstText.length >= 80
     && /(材料|阅读|回答下列问题|请回答|如图|下图|根据下列|据图)/.test(firstText);
-  if (hasMaterialLead) {
-    return {
-      materialHtml: blocks[0].outerHTML,
-      promptHtml: blocks.slice(1).map((node) => node.outerHTML).join("") || promptHtml,
-    };
+  const restHtml = blocks.slice(1).map((node) => node.outerHTML).join("");
+  // A lead paragraph followed only by figures is the question itself, not material.
+  if (hasMaterialLead && stripHtml(restHtml).length >= 15) {
+    return { materialHtml: blocks[0].outerHTML, promptHtml: restHtml };
   }
 
   return { materialHtml: "", promptHtml };

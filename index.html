@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>高三期中刷题本</title>
-    <link rel="stylesheet" href="./styles.css?v=20261031b" />
+    <link rel="stylesheet" href="./styles.css?v=20261031d" />
   </head>
   <body>
     <header class="mobile-bar">
@@ -110,16 +110,11 @@
         <section id="practice-view" class="question-card">
           <div id="material-content" class="material-box hidden"></div>
           <div class="question-main">
-          <div id="question-section" class="question-section"></div>
-          <div class="keyboard-help" aria-label="键盘快捷键说明">
-            <span><kbd>←</kbd> 上一题</span>
-            <span><kbd>→</kbd> 下一题</span>
-            <span><kbd>Space</kbd> 下一题</span>
-            <span><kbd>A-G</kbd>/<kbd>1-7</kbd> 选择选项</span>
-            <span><kbd>Y</kbd> 全对</span>
-            <span><kbd>P</kbd> 部分对</span>
-            <span><kbd>N</kbd> 不会</span>
+          <div class="question-section-row">
+            <div id="question-section" class="question-section"></div>
+            <button id="keyboard-help-toggle" class="ghost-btn keyboard-help-toggle" aria-controls="keyboard-help" aria-expanded="false">⌨ 快捷键</button>
           </div>
+          <div id="keyboard-help" class="keyboard-help hidden" aria-label="键盘快捷键说明"></div>
           <div id="prompt-content" class="rich-block prompt-block"></div>
 
           <div id="choice-wrapper" class="choice-wrapper hidden">
@@ -183,9 +178,14 @@
             </div>
             <div class="answer-review-actions">
               <div id="answer-review-summary" class="ledger-summary"></div>
-              <button id="copy-answer-review-btn" class="primary-btn">复制本学科答案</button>
+              <button id="copy-answer-review-btn" class="primary-btn">复制当前列表答案</button>
             </div>
           </div>
+          <div class="answer-review-tools">
+            <input id="answer-review-search" class="answer-review-search" type="search" placeholder="搜索题干、选项或答案关键词" aria-label="搜索背答案列表" />
+            <button id="answer-review-cover-btn" class="ghost-btn">遮住答案自测</button>
+          </div>
+          <p class="muted answer-review-hint">按侧栏「考点」筛选；遮住模式下点击答案区域即可揭晓。</p>
           <div id="answer-review-copy-status" class="muted answer-review-copy-status"></div>
           <textarea id="answer-review-plain-text" class="answer-review-plain-text" readonly aria-label="当前学科纯文本答案"></textarea>
           <div id="answer-review-list" class="answer-review-list"></div>
@@ -199,6 +199,6 @@
     </div>
 
     <script src="./data/questions.js"></script>
-    <script src="./app.js?v=20261031b"></script>
+    <script src="./app.js?v=20261031d"></script>
   </body>
 </html>
