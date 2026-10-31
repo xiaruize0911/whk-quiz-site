@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>高三期中刷题本</title>
-    <link rel="stylesheet" href="./styles.css?v=20261031" />
+    <link rel="stylesheet" href="./styles.css?v=20261031b" />
   </head>
   <body>
     <header class="mobile-bar">
@@ -28,11 +28,14 @@
         </section>
 
         <section class="sidebar-section">
-          <h2>范围</h2>
+          <h2>考点</h2>
+          <select id="topic-select" class="topic-select" aria-label="选择考点"></select>
+          <h2 class="sub-heading">范围</h2>
           <div class="mode-stack segmented">
             <button class="mode-btn scope-btn active" data-scope="all">全部题</button>
             <button class="mode-btn scope-btn" data-scope="choice">仅选择题</button>
             <button class="mode-btn scope-btn" data-scope="wrong">只刷错题</button>
+            <button class="mode-btn scope-btn" data-scope="due">今日待复习</button>
           </div>
           <h2 class="sub-heading">顺序</h2>
           <div class="mode-stack segmented">
@@ -65,6 +68,16 @@
         </section>
 
         <section class="sidebar-section">
+          <h2>数据备份</h2>
+          <p class="muted backup-hint">进度只保存在当前浏览器。换设备或清理浏览器前先导出。</p>
+          <div class="backup-actions">
+            <button id="export-progress-btn" class="ghost-btn">导出进度</button>
+            <button id="import-progress-btn" class="ghost-btn">导入进度</button>
+          </div>
+          <input id="import-progress-input" type="file" accept="application/json,.json" hidden />
+          <p id="backup-status" class="muted backup-status"></p>
+        </section>
+        <section class="sidebar-section">
           <div class="section-head">
             <h2>错题强化</h2>
             <button id="clear-wrongbook" class="ghost-btn">清空</button>
@@ -82,7 +95,7 @@
           <div class="toolbar-actions">
             <div class="view-switch" aria-label="页面切换">
               <button id="practice-view-btn" class="view-btn active">刷题</button>
-              <button id="ledger-view-btn" class="view-btn">题目数据</button>
+              <button id="ledger-view-btn" class="view-btn">掌握情况</button>
               <button id="answer-review-view-btn" class="view-btn">背答案</button>
             </div>
             <div class="question-actions" aria-label="题目操作">
@@ -103,8 +116,9 @@
             <span><kbd>→</kbd> 下一题</span>
             <span><kbd>Space</kbd> 下一题</span>
             <span><kbd>A-G</kbd>/<kbd>1-7</kbd> 选择选项</span>
-            <span><kbd>Y</kbd> 自评正确</span>
-            <span><kbd>N</kbd> 自评错误</span>
+            <span><kbd>Y</kbd> 全对</span>
+            <span><kbd>P</kbd> 部分对</span>
+            <span><kbd>N</kbd> 不会</span>
           </div>
           <div id="prompt-content" class="rich-block prompt-block"></div>
 
@@ -119,8 +133,9 @@
 
           <div id="subjective-actions" class="subjective-actions hidden">
             <button id="ai-grade-btn" class="primary-btn">AI 批改</button>
-            <button id="mark-correct-btn" class="success-btn">自评正确</button>
-            <button id="mark-wrong-btn" class="danger-btn">自评错误</button>
+            <button id="mark-correct-btn" class="success-btn">全对</button>
+            <button id="mark-partial-btn" class="partial-btn">部分对</button>
+            <button id="mark-wrong-btn" class="danger-btn">不会</button>
           </div>
 
           <div id="feedback-box" class="feedback-box hidden"></div>
@@ -151,11 +166,12 @@
         <section id="ledger-view" class="ledger-panel hidden">
           <div class="ledger-head">
             <div>
-              <p class="eyebrow">Question Data</p>
-              <h2>题目数据</h2>
+              <p class="eyebrow">Mastery</p>
+              <h2>掌握情况</h2>
             </div>
             <div id="ledger-summary" class="ledger-summary"></div>
           </div>
+          <div id="topic-mastery" class="topic-mastery"></div>
           <div id="question-ledger" class="question-ledger"></div>
         </section>
 
@@ -183,6 +199,6 @@
     </div>
 
     <script src="./data/questions.js"></script>
-    <script src="./app.js?v=20261031"></script>
+    <script src="./app.js?v=20261031b"></script>
   </body>
 </html>

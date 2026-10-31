@@ -1481,3 +1481,183 @@ button:disabled {
     gap: 10px;
   }
 }
+
+/* Topic picker */
+.topic-select {
+  width: 100%;
+  margin-top: 10px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+}
+
+/* Partial self-grade */
+.partial-btn {
+  border: 1px solid rgba(196, 132, 28, 0.32);
+  border-radius: 999px;
+  background: rgba(196, 132, 28, 0.13);
+  color: var(--ink);
+  padding: 13px 18px;
+  min-height: 44px;
+}
+
+.feedback-box.partial {
+  background: rgba(196, 132, 28, 0.12);
+  border: 1px solid rgba(196, 132, 28, 0.3);
+}
+
+/* Backup */
+.backup-hint {
+  margin: 8px 0 10px;
+  font-size: 0.9rem;
+}
+
+.backup-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.backup-status {
+  min-height: 1.2em;
+  margin: 8px 0 0;
+  font-size: 0.9rem;
+}
+
+/* Topic mastery overview */
+.topic-mastery {
+  margin-bottom: 22px;
+}
+
+.mastery-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.mastery-head h3 {
+  margin: 0;
+  font-family: "Kaiti SC", "STKaiti", serif;
+  font-size: 1.2rem;
+}
+
+.mastery-clear {
+  padding: 6px 12px;
+  font-size: 0.88rem;
+}
+
+.mastery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.mastery-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 18px;
+  background: #ffffff;
+  color: var(--ink);
+  text-align: left;
+}
+
+.mastery-card:hover {
+  border-color: rgba(31, 95, 191, 0.4);
+}
+
+.mastery-card.active {
+  outline: 3px solid rgba(31, 95, 191, 0.25);
+}
+
+.mastery-card strong {
+  font-size: 0.96rem;
+  line-height: 1.4;
+}
+
+.mastery-accuracy {
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.mastery-bar {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(22, 22, 22, 0.08);
+  overflow: hidden;
+}
+
+.mastery-bar span {
+  display: block;
+  height: 100%;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.mastery-meta {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.mastery-good {
+  border-color: rgba(47, 109, 79, 0.35);
+  background: rgba(47, 109, 79, 0.07);
+}
+
+.mastery-good .mastery-accuracy,
+.mastery-good .mastery-bar {
+  color: var(--success);
+}
+
+.mastery-fair {
+  border-color: rgba(196, 132, 28, 0.38);
+  background: rgba(196, 132, 28, 0.08);
+}
+
+.mastery-fair .mastery-accuracy,
+.mastery-fair .mastery-bar {
+  color: #9a6510;
+}
+
+.mastery-weak {
+  border-color: rgba(171, 54, 34, 0.38);
+  background: rgba(171, 54, 34, 0.07);
+}
+
+.mastery-weak .mastery-accuracy,
+.mastery-weak .mastery-bar {
+  color: var(--danger);
+}
+
+.mastery-untried .mastery-accuracy {
+  color: var(--muted);
+  font-size: 1.1rem;
+}
+
+@media (max-width: 720px) {
+  .mastery-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mastery-card {
+    padding: 12px;
+  }
+
+  .subjective-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  .subjective-actions #ai-grade-btn {
+    grid-column: 1 / -1;
+  }
+}

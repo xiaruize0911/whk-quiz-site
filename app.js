@@ -10,10 +10,16 @@ const LOCAL_AI_GRADE_ENDPOINT = window.location.protocol === "file:"
   : "/api/grade-subjective";
 const DEEPSEEK_CHAT_ENDPOINT = "https://api.deepseek.com/chat/completions";
 const DEEPSEEK_MODEL = "deepseek-v4-pro";
+const DAY_MS = 24 * 60 * 60 * 1000;
+// Wait before each spaced review once a wrong-book question is answered
+// correctly while due; the last step clears it from the wrong book.
+const REVIEW_INTERVALS = [DAY_MS, 3 * DAY_MS];
+const REVIEW_STEPS = REVIEW_INTERVALS.length + 1;
 
 const defaultProgress = {
   scope: "all",
   order: "random",
+  topicBySubject: {},
   currentSubject: null,
   currentQuestionId: null,
   recentQueue: [],
@@ -34,6 +40,7 @@ const state = loadProgress();
 state.aiGrades = state.aiGrades || {};
 state.aiExplanations = state.aiExplanations || {};
 state.answerDrafts = state.answerDrafts || {};
+state.topicBySubject = state.topicBySubject || {};
 
 const subjectTabs = document.getElementById("subject-tabs");
 const statsGrid = document.getElementById("stats-grid");
@@ -71,6 +78,13 @@ const sidebarOpenBtn = document.getElementById("sidebar-open-btn");
 const sidebarCloseBtn = document.getElementById("sidebar-close-btn");
 const mobileSubjectSelect = document.getElementById("mobile-subject-select");
 const questionToolbar = document.querySelector(".question-toolbar");
+const topicSelect = document.getElementById("topic-select");
+const topicMastery = document.getElementById("topic-mastery");
+const markPartialBtn = document.getElementById("mark-partial-btn");
+const exportProgressBtn = document.getElementById("export-progress-btn");
+const importProgressBtn = document.getElementById("import-progress-btn");
+const importProgressInput = document.getElementById("import-progress-input");
+const backupStatus = document.getElementById("backup-status");
 const practiceView = document.getElementById("practice-view");
 const ledgerView = document.getElementById("ledger-view");
 const practiceViewBtn = document.getElementById("practice-view-btn");
@@ -113,6 +127,7 @@ function init() {
   }
 
   renderSubjects();
+  renderTopicSelect();
   renderModeButtons();
   renderApiKeySettings();
   bindEvents();
@@ -133,7 +148,12 @@ function bindEvents() {
   saveApiKeyBtn.addEventListener("click", saveApiKeySetting);
   clearApiKeyBtn.addEventListener("click", clearApiKeySetting);
   markCorrectBtn.addEventListener("click", () => selfMark(true));
+  markPartialBtn.addEventListener("click", () => selfMark("partial"));
   markWrongBtn.addEventListener("click", () => selfMark(false));
+  topicSelect.addEventListener("change", () => selectTopic(topicSelect.value));
+  exportProgressBtn.addEventListener("click", exportProgress);
+  importProgressBtn.addEventListener("click", () => importProgressInput.click());
+  importProgressInput.addEventListener("change", importProgress);
   practiceViewBtn.addEventListener("click", () => switchView("practice"));
   ledgerViewBtn.addEventListener("click", () => switchView("ledger"));
   answerReviewViewBtn.addEventListener("click", () => switchView("answer-review"));
@@ -256,6 +276,7 @@ function selectSubject(subject) {
   state.currentSubject = subject;
   persist();
   renderSubjects();
+  renderTopicSelect();
   openNextQuestion();
   renderStats();
   renderQuestionLedger();
@@ -270,6 +291,41 @@ function renderModeButtons() {
   orderButtons.forEach((button) => {
     button.classList.toggle("active", button.dataset.order === state.order);
   });
+}
+
+function getQuestionTopic(question) {
+  return question.group || question.section || "未分组";
+}
+
+function getCurrentTopic() {
+  const topic = state.topicBySubject[state.currentSubject] || "";
+  const exists = getCurrentSubjectQuestions().some((question) => getQuestionTopic(question) === topic);
+  return exists ? topic : "";
+}
+
+function getSubjectTopics() {
+  const topics = new Map();
+  getCurrentSubjectQuestions().forEach((question) => {
+    const topic = getQuestionTopic(question);
+    if (!topics.has(topic)) topics.set(topic, []);
+    topics.get(topic).push(question);
+  });
+  return topics;
+}
+
+function renderTopicSelect() {
+  const current = getCurrentTopic();
+  topicSelect.innerHTML = "";
+  topicSelect.add(new Option(`全部考点 · ${getCurrentSubjectQuestions().length}`, "", false, !current));
+  getSubjectTopics().forEach((questions, topic) => {
+    topicSelect.add(new Option(`${topic} · ${questions.length}`, topic, false, topic === current));
+  });
+}
+
+function selectTopic(topic) {
+  state.topicBySubject[state.currentSubject] = topic;
+  renderTopicSelect();
+  applyModeChange({});
 }
 
 function renderApiKeySettings() {
@@ -305,7 +361,7 @@ function getCurrentSubjectQuestions({ filtered = false } = {}) {
 
 function getProgressFor(id) {
   if (!state.stats[id]) {
-    state.stats[id] = { seen: 0, correct: 0, wrong: 0, streak: 0, lastSeenAt: 0 };
+    state.stats[id] = { seen: 0, correct: 0, wrong: 0, partial: 0, streak: 0, lastSeenAt: 0 };
   }
   if (typeof state.stats[id].reviewLevel !== "number") {
     state.stats[id].reviewLevel = Math.max(0, state.stats[id].wrong || 0);
@@ -550,6 +606,12 @@ function handleGlobalKeydown(event) {
     return;
   }
 
+  if (key === "p" || key === "P") {
+    event.preventDefault();
+    selfMark("partial");
+    return;
+  }
+
   if (key === "n" || key === "N") {
     event.preventDefault();
     selfMark(false);
@@ -578,9 +640,11 @@ function gradeChoice(question, selected) {
   const isCorrect = answer === selected;
   answeredThisRound = true;
   markChoiceOptions(answer, selected);
-  updateProgress(question.id, isCorrect);
+  const outcome = updateProgress(question.id, isCorrect);
     feedbackBox.className = `feedback-box ${isCorrect ? "correct" : "wrong"}`;
-    feedbackBox.textContent = isCorrect ? `回答正确：${selected}` : `回答错误：你选了 ${selected}，正确答案是 ${answer || "未识别"}`;
+    feedbackBox.textContent = isCorrect
+      ? `回答正确：${selected}${describeReviewOutcome(outcome)}`
+      : `回答错误：你选了 ${selected}，正确答案是 ${answer || "未识别"}`;
   feedbackBox.classList.remove("hidden");
   revealAnswer(true);
   if (isCorrect) {
@@ -599,35 +663,66 @@ function revealAnswer(fromScoring) {
   }
 }
 
-function selfMark(isCorrect) {
+// result: true (全对), "partial" (部分对) or false (不会/错).
+function selfMark(result) {
   if (!currentQuestion || answeredThisRound) return;
   answeredThisRound = true;
-  updateProgress(currentQuestion.id, isCorrect);
-  feedbackBox.className = `feedback-box ${isCorrect ? "correct" : "wrong"}`;
-  feedbackBox.textContent = isCorrect ? "已记为自评正确" : "已记为自评错误，并加入错题优先池";
+  const outcome = updateProgress(currentQuestion.id, result);
+  const tone = result === true ? "correct" : result === "partial" ? "partial" : "wrong";
+  feedbackBox.className = `feedback-box ${tone}`;
+  feedbackBox.textContent = {
+    correct: `已记为全对${describeReviewOutcome(outcome)}`,
+    partial: "已记为部分对，加入错题本，今天再练一次",
+    wrong: "已记为不会，加入错题本，今天再练一次",
+  }[tone];
   feedbackBox.classList.remove("hidden");
   revealAnswer(true);
-  if (isCorrect) {
+  if (result === true) {
     queueAutoNext();
   }
 }
 
-function updateProgress(questionId, isCorrect) {
+function isReviewDue(progress) {
+  return (progress?.dueAt || 0) <= Date.now();
+}
+
+function describeReviewOutcome(outcome) {
+  if (outcome === "cleared") return "，已完成复习，移出错题本";
+  if (outcome === "scheduled") return "，按计划延后复习";
+  return "";
+}
+
+// Returns "cleared" / "scheduled" when a due wrong-book question advances its review.
+function updateProgress(questionId, result) {
   const progress = getProgressFor(questionId);
-  if (isCorrect) {
+  let outcome = "";
+  if (result === true) {
     progress.correct += 1;
     progress.streak = Math.max(0, progress.streak) + 1;
-    if (progress.streak >= 2 && getWrongReviewLevel(progress) > 0) {
-      progress.reviewLevel = Math.max(0, getWrongReviewLevel(progress) - 1);
-      progress.streak = 0;
-      if (progress.reviewLevel === 0) {
+    if (state.wrongBook.includes(questionId) && isReviewDue(progress)) {
+      progress.reviewStep = (progress.reviewStep || 0) + 1;
+      if (progress.reviewStep >= REVIEW_STEPS) {
+        progress.reviewLevel = 0;
+        progress.reviewStep = 0;
+        progress.dueAt = 0;
         state.wrongBook = state.wrongBook.filter((id) => id !== questionId);
+        outcome = "cleared";
+      } else {
+        progress.dueAt = Date.now() + REVIEW_INTERVALS[progress.reviewStep - 1];
+        outcome = "scheduled";
       }
     }
   } else {
-    progress.wrong += 1;
+    if (result === "partial") {
+      progress.partial = (progress.partial || 0) + 1;
+      progress.reviewLevel = Math.max(1, getWrongReviewLevel(progress));
+    } else {
+      progress.wrong += 1;
+      progress.reviewLevel = getWrongReviewLevel(progress) + 1;
+    }
     progress.streak = -1;
-    progress.reviewLevel = getWrongReviewLevel(progress) + 1;
+    progress.reviewStep = 0;
+    progress.dueAt = 0;
     if (!state.wrongBook.includes(questionId)) {
       state.wrongBook.unshift(questionId);
     }
@@ -636,6 +731,16 @@ function updateProgress(questionId, isCorrect) {
   renderStats();
   renderQuestionLedger();
   renderWrongbook();
+  return outcome;
+}
+
+function getAttempts(progress) {
+  return progress.correct + progress.wrong + (progress.partial || 0);
+}
+
+function getAccuracy(progress) {
+  const attempts = getAttempts(progress);
+  return attempts ? Math.round(((progress.correct + 0.5 * (progress.partial || 0)) / attempts) * 100) : 0;
 }
 
 function buildAnswerPanel(question) {
@@ -728,14 +833,18 @@ async function requestSubjectiveGrading() {
 }
 
 function applyAiGradingToProgress(isCorrect, score) {
-  if (!currentQuestion || answeredThisRound || typeof isCorrect !== "boolean") return;
+  const result = resultFromAiGrade(isCorrect, score);
+  if (!currentQuestion || answeredThisRound || result === null) return;
   answeredThisRound = true;
-  updateProgress(currentQuestion.id, isCorrect);
-  feedbackBox.className = `feedback-box ${isCorrect ? "correct" : "wrong"}`;
+  const outcome = updateProgress(currentQuestion.id, result);
+  const tone = result === true ? "correct" : result === "partial" ? "partial" : "wrong";
+  feedbackBox.className = `feedback-box ${tone}`;
   const scoreText = typeof score === "number" ? `（${score}/100）` : "";
-  feedbackBox.textContent = isCorrect
-    ? `AI 判定基本正确${scoreText}`
-    : `AI 判定需要重做${scoreText}，已加入错题优先池`;
+  feedbackBox.textContent = {
+    correct: `AI 判定基本正确${scoreText}${describeReviewOutcome(outcome)}`,
+    partial: `AI 判定部分正确${scoreText}，已加入错题本`,
+    wrong: `AI 判定需要重做${scoreText}，已加入错题本`,
+  }[tone];
   feedbackBox.classList.remove("hidden");
   revealAnswer(true);
 }
@@ -1130,6 +1239,12 @@ function inferCorrectFromScore(score) {
   return typeof score === "number" ? score >= 80 : null;
 }
 
+function resultFromAiGrade(isCorrect, score) {
+  if (isCorrect === true) return true;
+  if (typeof score === "number" && score >= 40) return "partial";
+  return isCorrect === false || typeof score === "number" ? false : null;
+}
+
 function truncateText(value, maxLength) {
   const text = String(value || "");
   return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
@@ -1243,7 +1358,9 @@ function chooseQuestion() {
     const progress = getProgressFor(question.id);
     let weight = 1;
     if (state.order === "wrong-priority") {
-      weight += state.wrongBook.includes(question.id) ? 8 : 0;
+      if (state.wrongBook.includes(question.id)) {
+        weight += isReviewDue(progress) ? 10 : 1;
+      }
       weight += progress.wrong * 5;
     } else {
       weight += progress.wrong * 3;
@@ -1287,15 +1404,15 @@ function renderStats() {
       acc.seen += progress.seen;
       acc.correct += progress.correct;
       acc.wrong += progress.wrong;
+      acc.partial += progress.partial || 0;
+      if (state.wrongBook.includes(question.id) && isReviewDue(progress)) acc.due += 1;
       if (getWrongReviewLevel(progress) >= 3) acc.highRisk += 1;
       if (getWrongReviewLevel(progress) > 0) acc.review += 1;
       return acc;
     },
-    { seen: 0, correct: 0, wrong: 0, highRisk: 0, review: 0 },
+    { seen: 0, correct: 0, wrong: 0, partial: 0, highRisk: 0, review: 0, due: 0 },
   );
-  const accuracy = subjectStats.correct + subjectStats.wrong
-    ? Math.round((subjectStats.correct / (subjectStats.correct + subjectStats.wrong)) * 100)
-    : 0;
+  const accuracy = getAccuracy(subjectStats);
 
   statsGrid.innerHTML = [
     statCard("当前学科", state.currentSubject),
@@ -1303,27 +1420,23 @@ function renderStats() {
     statCard("出现次数", String(subjectStats.seen)),
     statCard("正确率", `${accuracy}%`),
     statCard("答对", String(subjectStats.correct)),
-    statCard("答错", String(subjectStats.wrong)),
-    statCard("强化题", String(subjectStats.review)),
-    statCard("高危题", String(subjectStats.highRisk)),
+    statCard("答错/部分对", `${subjectStats.wrong}/${subjectStats.partial}`),
+    statCard("错题本", String(subjectStats.review)),
+    statCard("今日待复习", String(subjectStats.due)),
   ].join("");
 }
 
 function renderQuestionLedger() {
-  if (!questionLedger || !ledgerSummary) return;
-  const questions = getCurrentSubjectQuestions();
-  const answered = questions.filter((question) => {
-    const progress = getProgressFor(question.id);
-    return progress.correct + progress.wrong > 0;
-  }).length;
+  if (!questionLedger || !ledgerSummary || state.activeView !== "ledger") return;
+  renderTopicMastery();
+  const topic = getCurrentTopic();
+  const questions = getCurrentSubjectQuestions().filter((question) => !topic || getQuestionTopic(question) === topic);
+  const answered = questions.filter((question) => getAttempts(getProgressFor(question.id)) > 0).length;
   const wrongCount = questions.filter((question) => state.wrongBook.includes(question.id)).length;
-  const totalAttempts = questions.reduce((sum, question) => {
-    const progress = getProgressFor(question.id);
-    return sum + progress.correct + progress.wrong;
-  }, 0);
+  const totalAttempts = questions.reduce((sum, question) => sum + getAttempts(getProgressFor(question.id)), 0);
 
   ledgerSummary.innerHTML = [
-    `<span>题目 ${questions.length}</span>`,
+    `<span>${topic ? escapeHtml(topic) : "全部考点"} · 题目 ${questions.length}</span>`,
     `<span>已答 ${answered}</span>`,
     `<span>错题 ${wrongCount}</span>`,
     `<span>作答 ${totalAttempts}</span>`,
@@ -1332,8 +1445,7 @@ function renderQuestionLedger() {
   questionLedger.innerHTML = "";
   questions.forEach((question, index) => {
     const progress = getProgressFor(question.id);
-    const attempts = progress.correct + progress.wrong;
-    const accuracy = attempts ? Math.round((progress.correct / attempts) * 100) : 0;
+    const accuracy = getAccuracy(progress);
     const row = document.createElement("article");
     row.className = `ledger-row ${question.id === currentQuestion?.id ? "current" : ""}`;
     const preview = stripHtml(question.promptHtml).slice(0, 88) || question.label;
@@ -1367,7 +1479,102 @@ function renderQuestionLedger() {
   });
 }
 
+function getMasteryTone(practiced, accuracy) {
+  if (!practiced) return "untried";
+  if (accuracy >= 85) return "good";
+  if (accuracy >= 60) return "fair";
+  return "weak";
+}
+
+function renderTopicMastery() {
+  const current = getCurrentTopic();
+  const cards = [];
+  getSubjectTopics().forEach((questions, topic) => {
+    const totals = questions.reduce(
+      (acc, question) => {
+        const progress = getProgressFor(question.id);
+        if (getAttempts(progress) > 0) acc.practiced += 1;
+        acc.correct += progress.correct;
+        acc.wrong += progress.wrong;
+        acc.partial += progress.partial || 0;
+        if (state.wrongBook.includes(question.id)) {
+          acc.wrongBook += 1;
+          if (isReviewDue(progress)) acc.due += 1;
+        }
+        return acc;
+      },
+      { practiced: 0, correct: 0, wrong: 0, partial: 0, wrongBook: 0, due: 0 },
+    );
+    const accuracy = getAccuracy(totals);
+    const coverage = Math.round((totals.practiced / questions.length) * 100);
+    const tone = getMasteryTone(totals.practiced, accuracy);
+    cards.push(`
+      <button class="mastery-card mastery-${tone}${topic === current ? " active" : ""}" data-topic="${escapeHtml(topic)}">
+        <strong>${escapeHtml(topic)}</strong>
+        <span class="mastery-accuracy">${totals.practiced ? `${accuracy}%` : "未练"}</span>
+        <span class="mastery-bar"><span style="width:${coverage}%"></span></span>
+        <span class="mastery-meta">已练 ${totals.practiced}/${questions.length} · 错题 ${totals.wrongBook}${totals.due ? ` · 待复习 ${totals.due}` : ""}</span>
+      </button>`);
+  });
+  topicMastery.innerHTML = `
+    <div class="mastery-head">
+      <h3>考点掌握</h3>
+      <span class="muted">点击考点即可只练该考点${current ? ` · <button class="ghost-btn mastery-clear" data-topic="">看全部考点</button>` : ""}</span>
+    </div>
+    <div class="mastery-grid">${cards.join("")}</div>`;
+  topicMastery.querySelectorAll("[data-topic]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const topic = button.dataset.topic;
+      state.topicBySubject[state.currentSubject] = topic;
+      renderTopicSelect();
+      if (topic) {
+        switchView("practice");
+      }
+      applyModeChange({});
+    });
+  });
+}
+
+function exportProgress() {
+  const payload = {
+    app: "whk-quiz-site",
+    storageKey: STORAGE_KEY,
+    exportedAt: new Date().toISOString(),
+    state,
+  };
+  const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+  const link = document.createElement("a");
+  const stamp = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+  link.href = URL.createObjectURL(blob);
+  link.download = `刷题进度-${stamp}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  backupStatus.textContent = "已导出进度文件，可在其他设备导入。";
+}
+
+async function importProgress() {
+  const file = importProgressInput.files?.[0];
+  importProgressInput.value = "";
+  if (!file) return;
+  try {
+    const payload = JSON.parse(await file.text());
+    const imported = payload?.state;
+    if (payload?.app !== "whk-quiz-site" || !imported || typeof imported.stats !== "object") {
+      throw new Error("不是本站导出的进度文件");
+    }
+    const answeredCount = Object.values(imported.stats).filter((progress) => getAttempts({ partial: 0, ...progress }) > 0).length;
+    if (!window.confirm(`导入将覆盖本设备当前的进度（文件中有 ${answeredCount} 道已作答题目）。确定导入？`)) return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(migrateMode({ ...structuredClone(defaultProgress), ...imported })));
+    window.location.reload();
+  } catch (error) {
+    backupStatus.textContent = `导入失败：${error.message || "文件无法读取"}`;
+  }
+}
+
 function renderAnswerReview() {
+  if (state.activeView !== "answer-review") return;
   if (!answerReviewList || !answerReviewSummary) return;
   const questions = getCurrentSubjectQuestions();
   const choiceCount = questions.filter((question) => question.kind === "choice").length;
@@ -1747,7 +1954,7 @@ function getWrongTier(level) {
       key: "danger",
       title: "红色高危",
       label: "错 3 次以上",
-      hint: "优先重做，直到连续答对 2 次降级。",
+      hint: "答对后隔 1 天、3 天各复习一次，三轮都答对即移出。",
     };
   }
   if (level === 2) {
@@ -1755,7 +1962,7 @@ function getWrongTier(level) {
       key: "focus",
       title: "重点复刷",
       label: "错 2 次",
-      hint: "连续答对 2 次后降为普通错题。",
+      hint: "答对后隔 1 天、3 天各复习一次，三轮都答对即移出。",
     };
   }
   if (level === 1) {
@@ -1763,7 +1970,7 @@ function getWrongTier(level) {
       key: "normal",
       title: "普通错题",
       label: "错 1 次",
-      hint: "连续答对 2 次后移出强化队列。",
+      hint: "答对后隔 1 天、3 天各复习一次，三轮都答对即移出。",
     };
   }
   return {
@@ -1785,7 +1992,8 @@ function renderWrongbook() {
     .sort((a, b) => {
       const progressA = getProgressFor(a.id);
       const progressB = getProgressFor(b.id);
-      return getWrongReviewLevel(progressB) - getWrongReviewLevel(progressA)
+      return Number(isReviewDue(progressB)) - Number(isReviewDue(progressA))
+        || getWrongReviewLevel(progressB) - getWrongReviewLevel(progressA)
         || (progressB.wrong || 0) - (progressA.wrong || 0)
         || (progressB.lastSeenAt || 0) - (progressA.lastSeenAt || 0);
     });
@@ -1825,7 +2033,7 @@ function renderWrongbook() {
     item.innerHTML = `
       <p><strong>${question.label}</strong> · ${question.section || "未分类"}</p>
       <p class="muted">${preview}${preview.length >= 46 ? "..." : ""}</p>
-      <p class="muted">强化等级 ${level} · 累计错 ${progress.wrong} 次 / 对 ${progress.correct} 次 / 连续对 ${Math.max(0, progress.streak || 0)} 次</p>
+      <p class="muted">${formatReviewDue(progress)} · 复习进度 ${progress.reviewStep || 0}/${REVIEW_STEPS} · 累计错 ${progress.wrong} 次 / 部分对 ${progress.partial || 0} 次 / 对 ${progress.correct} 次</p>
     `;
     const actionBar = document.createElement("div");
     actionBar.className = "toolbar-actions";
@@ -1853,6 +2061,13 @@ function renderWrongbook() {
     });
     wrongbookList.appendChild(groupEl);
   });
+}
+
+function formatReviewDue(progress) {
+  const remaining = (progress.dueAt || 0) - Date.now();
+  if (remaining <= 0) return "现在复习";
+  const days = Math.ceil(remaining / DAY_MS);
+  return days <= 1 ? "明天复习" : `${days} 天后复习`;
 }
 
 function cleanupWrongBook() {
@@ -1904,7 +2119,15 @@ function chooseShuffledCycleQuestion(subjectQuestions) {
   return subjectQuestions[0] || null;
 }
 
-function filterQuestionsByMode(questions) {
+function filterQuestionsByMode(allQuestions) {
+  const topic = getCurrentTopic();
+  const questions = topic
+    ? allQuestions.filter((question) => getQuestionTopic(question) === topic)
+    : allQuestions;
+  if (state.scope === "due") {
+    const wrongIds = new Set(state.wrongBook);
+    return questions.filter((question) => wrongIds.has(question.id) && isReviewDue(getProgressFor(question.id)));
+  }
   if (state.scope === "choice") {
     return questions.filter((question) => question.kind === "choice");
   }
@@ -2396,6 +2619,7 @@ function migrateMode(progress) {
   }[progress.mode];
   if (legacy) Object.assign(progress, legacy);
   delete progress.mode;
+  progress.topicBySubject = progress.topicBySubject || {};
   return progress;
 }
 
