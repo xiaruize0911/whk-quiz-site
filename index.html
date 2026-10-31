@@ -4,13 +4,20 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>高三期中刷题本</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=20261031" />
   </head>
   <body>
+    <header class="mobile-bar">
+      <strong class="mobile-brand">高三期中刷题本</strong>
+      <select id="mobile-subject-select" class="mobile-subject-select" aria-label="切换学科"></select>
+      <button id="sidebar-open-btn" class="ghost-btn mobile-menu-btn" aria-controls="sidebar" aria-expanded="false">菜单</button>
+    </header>
+    <div id="sidebar-backdrop" class="sidebar-backdrop hidden"></div>
     <div class="page-shell">
-      <aside class="panel sidebar">
+      <aside id="sidebar" class="panel sidebar">
+        <button id="sidebar-close-btn" class="sidebar-close-btn" aria-label="关闭菜单">×</button>
         <div class="brand">
-          <p class="eyebrow">Final Drill Lab</p>
+          <p class="eyebrow">G3 Midterm Drill</p>
           <h1>高三期中刷题本</h1>
           <p class="muted">按学科随机刷题，自动累计次数、强化错题。</p>
         </div>
@@ -21,14 +28,18 @@
         </section>
 
         <section class="sidebar-section">
-          <h2>模式</h2>
-          <div class="mode-stack">
-            <button class="mode-btn active" data-mode="subject-random">同学科随机</button>
-            <button class="mode-btn" data-mode="choice-only">仅选择题</button>
-            <button class="mode-btn" data-mode="sequential">顺序练习</button>
-            <button class="mode-btn" data-mode="shuffled-cycle">乱序不重复</button>
-            <button class="mode-btn" data-mode="wrong-priority">错题优先</button>
-            <button class="mode-btn" data-mode="wrong-only">只刷错题</button>
+          <h2>范围</h2>
+          <div class="mode-stack segmented">
+            <button class="mode-btn scope-btn active" data-scope="all">全部题</button>
+            <button class="mode-btn scope-btn" data-scope="choice">仅选择题</button>
+            <button class="mode-btn scope-btn" data-scope="wrong">只刷错题</button>
+          </div>
+          <h2 class="sub-heading">顺序</h2>
+          <div class="mode-stack segmented">
+            <button class="mode-btn order-btn active" data-order="random">随机</button>
+            <button class="mode-btn order-btn" data-order="wrong-priority">错题优先</button>
+            <button class="mode-btn order-btn" data-order="shuffled">乱序不重复</button>
+            <button class="mode-btn order-btn" data-order="sequential">顺序</button>
           </div>
         </section>
 
@@ -84,21 +95,21 @@
         </header>
 
         <section id="practice-view" class="question-card">
+          <div id="material-content" class="material-box hidden"></div>
+          <div class="question-main">
           <div id="question-section" class="question-section"></div>
           <div class="keyboard-help" aria-label="键盘快捷键说明">
             <span><kbd>←</kbd> 上一题</span>
             <span><kbd>→</kbd> 下一题</span>
             <span><kbd>Space</kbd> 下一题</span>
-            <span><kbd>1-4</kbd> 选择选项</span>
+            <span><kbd>A-G</kbd>/<kbd>1-7</kbd> 选择选项</span>
             <span><kbd>Y</kbd> 自评正确</span>
             <span><kbd>N</kbd> 自评错误</span>
           </div>
-          <div id="material-content" class="material-box hidden"></div>
           <div id="prompt-content" class="rich-block prompt-block"></div>
 
           <div id="choice-wrapper" class="choice-wrapper hidden">
-            <div id="options-raw" class="rich-block option-source"></div>
-            <div id="answer-buttons" class="answer-buttons"></div>
+            <div id="options-raw" class="option-list" role="group" aria-label="选项"></div>
           </div>
 
           <div id="input-wrapper" class="input-wrapper hidden">
@@ -133,6 +144,7 @@
               <span id="ai-explanation-meta" class="muted"></span>
             </div>
             <div id="ai-explanation-content" class="rich-block"></div>
+          </div>
           </div>
         </section>
 
@@ -171,6 +183,6 @@
     </div>
 
     <script src="./data/questions.js"></script>
-    <script src="./app.js"></script>
+    <script src="./app.js?v=20261031"></script>
   </body>
 </html>

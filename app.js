@@ -12,7 +12,8 @@ const DEEPSEEK_CHAT_ENDPOINT = "https://api.deepseek.com/chat/completions";
 const DEEPSEEK_MODEL = "deepseek-v4-pro";
 
 const defaultProgress = {
-  mode: "subject-random",
+  scope: "all",
+  order: "random",
   currentSubject: null,
   currentQuestionId: null,
   recentQueue: [],
@@ -44,7 +45,6 @@ const materialContent = document.getElementById("material-content");
 const promptContent = document.getElementById("prompt-content");
 const choiceWrapper = document.getElementById("choice-wrapper");
 const optionsRaw = document.getElementById("options-raw");
-const answerButtons = document.getElementById("answer-buttons");
 const inputWrapper = document.getElementById("input-wrapper");
 const subjectiveInput = document.getElementById("subjective-input");
 const subjectiveActions = document.getElementById("subjective-actions");
@@ -63,7 +63,14 @@ const deepseekApiKeyInput = document.getElementById("deepseek-api-key");
 const saveApiKeyBtn = document.getElementById("save-api-key");
 const clearApiKeyBtn = document.getElementById("clear-api-key");
 const apiKeyStatus = document.getElementById("api-key-status");
-const modeButtons = Array.from(document.querySelectorAll(".mode-btn"));
+const scopeButtons = Array.from(document.querySelectorAll(".scope-btn"));
+const orderButtons = Array.from(document.querySelectorAll(".order-btn"));
+const sidebar = document.getElementById("sidebar");
+const sidebarBackdrop = document.getElementById("sidebar-backdrop");
+const sidebarOpenBtn = document.getElementById("sidebar-open-btn");
+const sidebarCloseBtn = document.getElementById("sidebar-close-btn");
+const mobileSubjectSelect = document.getElementById("mobile-subject-select");
+const questionToolbar = document.querySelector(".question-toolbar");
 const practiceView = document.getElementById("practice-view");
 const ledgerView = document.getElementById("ledger-view");
 const practiceViewBtn = document.getElementById("practice-view-btn");
@@ -109,6 +116,7 @@ function init() {
   renderModeButtons();
   renderApiKeySettings();
   bindEvents();
+  trackToolbarHeight();
   renderActiveView();
   openNextQuestion();
   renderStats();
@@ -134,7 +142,7 @@ function bindEvents() {
   imageZoomClose.addEventListener("click", closeImageZoom);
   imageZoomImg.addEventListener("click", (event) => event.stopPropagation());
   document.addEventListener("keydown", handleGlobalKeydown);
-  [promptContent, optionsRaw, answerContent, materialContent, aiGradingContent, aiExplanationContent, answerReviewList].forEach((container) => {
+  [promptContent, answerContent, materialContent, aiGradingContent, aiExplanationContent, answerReviewList].forEach((container) => {
     container.addEventListener("click", handleRichContentClick);
   });
   subjectiveInput.addEventListener("input", () => {
@@ -153,17 +161,52 @@ function bindEvents() {
   resetSubjectStatsBtn.addEventListener("click", () => {
     resetCurrentSubjectProgress();
   });
-  modeButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      state.mode = button.dataset.mode;
-      persist();
-      renderModeButtons();
-      openNextQuestion();
-      renderStats();
-      renderQuestionLedger();
-      renderAnswerReview();
-    });
+  scopeButtons.forEach((button) => {
+    button.addEventListener("click", () => applyModeChange({ scope: button.dataset.scope }));
   });
+  orderButtons.forEach((button) => {
+    button.addEventListener("click", () => applyModeChange({ order: button.dataset.order }));
+  });
+  sidebarOpenBtn.addEventListener("click", () => setSidebarOpen(true));
+  sidebarCloseBtn.addEventListener("click", () => setSidebarOpen(false));
+  sidebarBackdrop.addEventListener("click", () => setSidebarOpen(false));
+  mobileSubjectSelect.addEventListener("change", () => selectSubject(mobileSubjectSelect.value));
+  optionsRaw.addEventListener("click", handleOptionClick);
+  optionsRaw.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    const option = event.target.closest?.("[data-choice-label]");
+    if (!option || !currentQuestion) return;
+    event.preventDefault();
+    event.stopPropagation();
+    gradeChoice(currentQuestion, option.dataset.choiceLabel);
+  });
+}
+
+function applyModeChange(change) {
+  Object.assign(state, change);
+  persist();
+  renderModeButtons();
+  openNextQuestion();
+  renderStats();
+  renderQuestionLedger();
+  renderAnswerReview();
+  renderWrongbook();
+}
+
+function setSidebarOpen(open) {
+  document.body.classList.toggle("sidebar-open", open);
+  sidebarBackdrop.classList.toggle("hidden", !open);
+  sidebarOpenBtn.setAttribute("aria-expanded", String(open));
+}
+
+function trackToolbarHeight() {
+  const update = () => {
+    document.documentElement.style.setProperty("--toolbar-h", `${questionToolbar.offsetHeight}px`);
+  };
+  update();
+  if (window.ResizeObserver) {
+    new ResizeObserver(update).observe(questionToolbar);
+  }
 }
 
 function switchView(view) {
@@ -185,6 +228,7 @@ function renderActiveView() {
   nextBtn.classList.toggle("hidden", isLedger || isAnswerReview);
   revealBtn.classList.toggle("hidden", isLedger || isAnswerReview);
   aiExplainBtn.classList.toggle("hidden", isLedger || isAnswerReview);
+  questionToolbar.querySelector(".question-actions").classList.toggle("hidden", isLedger || isAnswerReview);
   if (isLedger) {
     renderQuestionLedger();
   }
@@ -195,27 +239,36 @@ function renderActiveView() {
 
 function renderSubjects() {
   subjectTabs.innerHTML = "";
+  mobileSubjectSelect.innerHTML = "";
   Object.keys(questionBank.subjects).forEach((subject) => {
+    const label = `${subject} · ${questionBank.subjects[subject].questions.length}`;
     const button = document.createElement("button");
     button.className = `subject-tab ${subject === state.currentSubject ? "active" : ""}`;
-    button.textContent = `${subject} · ${questionBank.subjects[subject].questions.length}`;
-    button.addEventListener("click", () => {
-      state.currentSubject = subject;
-      persist();
-      renderSubjects();
-      openNextQuestion();
-      renderStats();
-      renderQuestionLedger();
-      renderAnswerReview();
-      renderWrongbook();
-    });
+    button.textContent = label;
+    button.addEventListener("click", () => selectSubject(subject));
     subjectTabs.appendChild(button);
+    mobileSubjectSelect.add(new Option(label, subject, false, subject === state.currentSubject));
   });
 }
 
+function selectSubject(subject) {
+  setSidebarOpen(false);
+  state.currentSubject = subject;
+  persist();
+  renderSubjects();
+  openNextQuestion();
+  renderStats();
+  renderQuestionLedger();
+  renderAnswerReview();
+  renderWrongbook();
+}
+
 function renderModeButtons() {
-  modeButtons.forEach((button) => {
-    button.classList.toggle("active", button.dataset.mode === state.mode);
+  scopeButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.scope === state.scope);
+  });
+  orderButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.order === state.order);
   });
 }
 
@@ -360,6 +413,9 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
     ? `<p class="material-label">材料</p><div class="rich-block">${materialHtml}</div>`
     : "";
   materialContent.classList.toggle("hidden", !materialSplit.materialHtml);
+  practiceView.classList.toggle("has-material", Boolean(materialSplit.materialHtml));
+  materialContent.scrollTop = 0;
+  scrollQuestionIntoView();
   promptContent.innerHTML = annotateClozeBlanks(materialSplit.promptHtml, currentQuestion) || "<p>题面缺失</p>";
   answerContent.innerHTML = buildAnswerPanel(currentQuestion);
   renderAiExplanation(currentQuestion);
@@ -400,20 +456,43 @@ function openNextQuestion(forceQuestion = null) {
 
 function renderChoiceQuestion(question, optionsHtml) {
   const optionMap = getQuestionOptions(question, optionsHtml);
-  const order = Object.keys(optionMap);
-  optionsRaw.innerHTML = order.map((label) => optionMap[label]).filter(Boolean).join("");
+  optionsRaw.innerHTML = Object.keys(optionMap)
+    .map((label) => `
+      <div class="option-choice" role="button" tabindex="0" data-choice-label="${label}">
+        <span class="option-badge">${label}</span>
+        <div class="option-body rich-block">${stripOptionLabel(optionMap[label], label)}</div>
+      </div>`)
+    .join("");
   enhanceRichContent(optionsRaw);
-  renderChoiceButtons(question, order);
 }
 
-function renderChoiceButtons(question, labels) {
-  answerButtons.innerHTML = "";
-  labels.forEach((label) => {
-    const button = document.createElement("button");
-    button.textContent = label;
-    button.dataset.choiceLabel = label;
-    button.addEventListener("click", () => gradeChoice(question, label));
-    answerButtons.appendChild(button);
+function stripOptionLabel(html, label) {
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = html || "";
+  const walker = document.createTreeWalker(wrapper, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (!node.nodeValue.trim()) continue;
+    node.nodeValue = node.nodeValue.replace(new RegExp(`^\\s*${label}\\s*[\\.．、]\\s*`), "");
+    break;
+  }
+  return wrapper.innerHTML;
+}
+
+function handleOptionClick(event) {
+  const option = event.target.closest?.("[data-choice-label]");
+  if (!option || !currentQuestion) return;
+  if (answeredThisRound && event.target.closest("img")) return;
+  event.stopPropagation();
+  gradeChoice(currentQuestion, option.dataset.choiceLabel);
+}
+
+function markChoiceOptions(answer, selected = "") {
+  optionsRaw.classList.add("answered");
+  optionsRaw.querySelectorAll("[data-choice-label]").forEach((option) => {
+    const label = option.dataset.choiceLabel;
+    option.classList.toggle("correct", label === answer);
+    option.classList.toggle("wrong", Boolean(selected) && label === selected && label !== answer);
   });
 }
 
@@ -498,6 +577,7 @@ function gradeChoice(question, selected) {
   const answer = normalizeAnswer(question.answerText);
   const isCorrect = answer === selected;
   answeredThisRound = true;
+  markChoiceOptions(answer, selected);
   updateProgress(question.id, isCorrect);
     feedbackBox.className = `feedback-box ${isCorrect ? "correct" : "wrong"}`;
     feedbackBox.textContent = isCorrect ? `回答正确：${selected}` : `回答错误：你选了 ${selected}，正确答案是 ${answer || "未识别"}`;
@@ -515,6 +595,7 @@ function revealAnswer(fromScoring) {
     feedbackBox.className = "feedback-box wrong";
     feedbackBox.textContent = `正确答案：${normalizeAnswer(currentQuestion.answerText) || "未识别"}`;
     feedbackBox.classList.remove("hidden");
+    markChoiceOptions(normalizeAnswer(currentQuestion.answerText));
   }
 }
 
@@ -1147,30 +1228,22 @@ function chooseQuestion() {
   const subjectQuestions = getCurrentSubjectQuestions({ filtered: true });
   if (!subjectQuestions.length) return null;
 
-  if (state.mode === "sequential") {
+  if (state.order === "sequential") {
     const cursor = state.sequenceCursor[state.currentSubject] || 0;
     const question = subjectQuestions[cursor % subjectQuestions.length] || null;
     state.sequenceCursor[state.currentSubject] = (cursor + 1) % subjectQuestions.length;
     return question;
   }
 
-  if (state.mode === "shuffled-cycle") {
+  if (state.order === "shuffled") {
     return chooseShuffledCycleQuestion(subjectQuestions);
   }
 
-  let pool = subjectQuestions;
-  if (state.mode === "wrong-only") {
-    pool = subjectQuestions.filter((question) => state.wrongBook.includes(question.id));
-  }
-  if (!pool.length) return null;
-
-  const weighted = pool.map((question) => {
+  const weighted = subjectQuestions.map((question) => {
     const progress = getProgressFor(question.id);
     let weight = 1;
-    if (state.mode !== "subject-random") {
+    if (state.order === "wrong-priority") {
       weight += state.wrongBook.includes(question.id) ? 8 : 0;
-    }
-    if (state.mode === "wrong-priority") {
       weight += progress.wrong * 5;
     } else {
       weight += progress.wrong * 3;
@@ -1578,31 +1651,24 @@ function formatLastSeen(value) {
 }
 
 function renderNavButtons() {
-  prevBtn.disabled = state.mode === "sequential"
-    ? getSequentialQuestionIndex() <= 0
+  prevBtn.disabled = state.order === "sequential"
+    ? !findSequentialNeighbor(-1)
     : state.historyCursor <= 0;
   nextBtn.disabled = !canGoNext();
 }
 
 function canGoNext() {
-  if (state.mode === "sequential") {
-    const subjectQuestions = getCurrentSubjectQuestions({ filtered: true });
-    const currentIndex = getSequentialQuestionIndex(subjectQuestions);
-    return currentIndex >= 0 && currentIndex < subjectQuestions.length - 1;
+  if (state.order === "sequential") {
+    return Boolean(findSequentialNeighbor(1));
   }
   if (state.historyCursor < state.questionHistory.length - 1) {
     return true;
   }
-  const subjectQuestions = getCurrentSubjectQuestions({ filtered: true });
-  if (!subjectQuestions.length) return false;
-  if (state.mode === "wrong-only") {
-    return subjectQuestions.some((question) => state.wrongBook.includes(question.id));
-  }
-  return true;
+  return getCurrentSubjectQuestions({ filtered: true }).length > 0;
 }
 
 function goToPreviousQuestion() {
-  if (state.mode === "sequential") {
+  if (state.order === "sequential") {
     goToSequentialOffset(-1);
     return;
   }
@@ -1615,7 +1681,7 @@ function goToPreviousQuestion() {
 }
 
 function goToNextQuestion() {
-  if (state.mode === "sequential") {
+  if (state.order === "sequential") {
     goToSequentialOffset(1);
     return;
   }
@@ -1631,19 +1697,36 @@ function goToNextQuestion() {
 }
 
 function goToSequentialOffset(offset) {
-  const subjectQuestions = getCurrentSubjectQuestions({ filtered: true });
-  const currentIndex = getSequentialQuestionIndex(subjectQuestions);
-  if (currentIndex < 0) return;
-  const nextIndex = currentIndex + offset;
-  if (nextIndex < 0 || nextIndex >= subjectQuestions.length) return;
+  const target = findSequentialNeighbor(offset);
+  if (!target) return;
   clearAutoNext();
-  state.sequenceCursor[state.currentSubject] = nextIndex + 1;
-  openQuestion(subjectQuestions[nextIndex], { recordSeen: true, pushHistory: false });
+  const subjectQuestions = getCurrentSubjectQuestions({ filtered: true });
+  state.sequenceCursor[state.currentSubject] = subjectQuestions.indexOf(target) + 1;
+  openQuestion(target, { recordSeen: true, pushHistory: false });
 }
 
-function getSequentialQuestionIndex(subjectQuestions = getCurrentSubjectQuestions({ filtered: true })) {
-  if (!currentQuestion) return -1;
-  return subjectQuestions.findIndex((question) => question.id === currentQuestion.id);
+// Walk the full subject order so the current question still anchors the walk
+// after it drops out of the filtered pool (e.g. leaves the wrong book).
+function findSequentialNeighbor(offset) {
+  const allQuestions = getCurrentSubjectQuestions();
+  const allowed = new Set(getCurrentSubjectQuestions({ filtered: true }).map((question) => question.id));
+  const start = currentQuestion ? allQuestions.findIndex((question) => question.id === currentQuestion.id) : -1;
+  if (start < 0) return null;
+  for (let index = start + offset; index >= 0 && index < allQuestions.length; index += offset) {
+    if (allowed.has(allQuestions[index].id)) return allQuestions[index];
+  }
+  return null;
+}
+
+function scrollQuestionIntoView() {
+  if (state.activeView !== "practice") return;
+  const top = practiceView.getBoundingClientRect().top + window.scrollY;
+  const mobileBarHeight = window.matchMedia("(max-width: 1080px)").matches ? 56 : 0;
+  const toolbarHeight = window.matchMedia("(max-width: 720px)").matches ? 0 : questionToolbar.offsetHeight;
+  const offset = mobileBarHeight + toolbarHeight + 12;
+  if (window.scrollY > top - offset) {
+    window.scrollTo({ top: Math.max(0, top - offset) });
+  }
 }
 
 function statCard(label, value) {
@@ -1792,34 +1875,42 @@ function normalizeAnswer(answerText) {
   return (answerText || "").replace(/[^A-Z]/gi, "").toUpperCase();
 }
 
+// The shuffled order covers the whole subject; the current scope only decides
+// which entries are skipped, so changing scope doesn't restart the cycle.
 function chooseShuffledCycleQuestion(subjectQuestions) {
   const subject = state.currentSubject;
+  const allIds = getCurrentSubjectQuestions().map((question) => question.id);
   const questionMap = new Map(subjectQuestions.map((question) => [question.id, question]));
-  const currentIds = subjectQuestions.map((question) => question.id);
-  const savedOrder = (state.shuffledOrder[subject] || []).filter((id) => questionMap.has(id));
-
-  let order = savedOrder;
-  if (order.length !== currentIds.length) {
-    order = shuffleArray(currentIds);
-    state.shuffledOrder[subject] = order;
-    state.shuffledCursor[subject] = 0;
-  }
-
+  let order = (state.shuffledOrder[subject] || []).filter((id) => allIds.includes(id));
   let cursor = state.shuffledCursor[subject] || 0;
-  if (cursor >= order.length) {
-    order = shuffleArray(currentIds);
-    state.shuffledOrder[subject] = order;
+  if (order.length !== allIds.length) {
+    order = shuffleArray(allIds);
     cursor = 0;
   }
 
-  const question = questionMap.get(order[cursor]) || subjectQuestions[0] || null;
-  state.shuffledCursor[subject] = cursor + 1;
-  return question;
+  for (let step = 0; step < order.length * 2; step += 1) {
+    if (cursor >= order.length) {
+      order = shuffleArray(allIds);
+      cursor = 0;
+    }
+    const question = questionMap.get(order[cursor]);
+    cursor += 1;
+    if (question) {
+      state.shuffledOrder[subject] = order;
+      state.shuffledCursor[subject] = cursor;
+      return question;
+    }
+  }
+  return subjectQuestions[0] || null;
 }
 
 function filterQuestionsByMode(questions) {
-  if (state.mode === "choice-only") {
+  if (state.scope === "choice") {
     return questions.filter((question) => question.kind === "choice");
+  }
+  if (state.scope === "wrong") {
+    const wrongIds = new Set(state.wrongBook);
+    return questions.filter((question) => wrongIds.has(question.id));
   }
   return questions;
 }
@@ -2288,10 +2379,24 @@ function persist() {
 function loadProgress() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-    return { ...structuredClone(defaultProgress), ...(saved || {}) };
+    return migrateMode({ ...structuredClone(defaultProgress), ...(saved || {}) });
   } catch (error) {
     return structuredClone(defaultProgress);
   }
+}
+
+function migrateMode(progress) {
+  const legacy = {
+    "subject-random": { scope: "all", order: "random" },
+    "choice-only": { scope: "choice", order: "random" },
+    sequential: { scope: "all", order: "sequential" },
+    "shuffled-cycle": { scope: "all", order: "shuffled" },
+    "wrong-priority": { scope: "all", order: "wrong-priority" },
+    "wrong-only": { scope: "wrong", order: "random" },
+  }[progress.mode];
+  if (legacy) Object.assign(progress, legacy);
+  delete progress.mode;
+  return progress;
 }
 
 function findQuestionById(id) {
