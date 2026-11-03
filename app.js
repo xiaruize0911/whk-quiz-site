@@ -2,6 +2,8 @@ const questionBank = window.__QUESTION_BANK__ || { subjects: {}, allQuestions: [
 
 const STORAGE_KEY = "g3-midterm-drill-lab-v1";
 const API_KEY_STORAGE_KEY = "final-drill-lab-deepseek-api-key";
+const ANALYSIS_VERSION = "20261103";
+const analysisBundles = {};
 const LOCAL_AI_EXPLAIN_ENDPOINT = window.location.protocol === "file:"
   ? "http://127.0.0.1:8767/api/explain"
   : "/api/explain";
@@ -512,6 +514,7 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
   scrollQuestionIntoView();
   promptContent.innerHTML = annotateClozeBlanks(materialSplit.promptHtml, currentQuestion) || "<p>题面缺失</p>";
   answerContent.innerHTML = buildAnswerPanel(currentQuestion);
+  fillAnalysis(answerContent.querySelector(".analysis-slot"), currentQuestion);
   renderAiExplanation(currentQuestion);
   renderAiGrading(currentQuestion);
   enhanceRichContent(materialContent);
@@ -793,9 +796,76 @@ function buildAnswerPanel(question) {
     parts.push(`<div class="rich-block"><p><strong>答案</strong></p>${question.answerHtml}</div>`);
   }
   if (question.explanationHtml) {
-    parts.push(`<div class="rich-block"><p><strong>解析</strong></p>${question.explanationHtml}</div>`);
+    parts.push(`<div class="rich-block"><p><strong>原卷解析</strong></p>${question.explanationHtml}</div>`);
   }
-  return parts.join("") || "<p>当前题目没有解析内容。</p>";
+  parts.push(`<div class="analysis-slot"></div>`);
+  return parts.join("");
+}
+
+// Detailed analyses live in data/analysis/<slug>.json and load the first time a subject needs them.
+function loadAnalysis(question) {
+  const slug = question.id.split("-")[0];
+  if (!analysisBundles[slug]) {
+    analysisBundles[slug] = fetch(`data/analysis/${slug}.json?v=${ANALYSIS_VERSION}`)
+      .then((response) => (response.ok ? response.json() : {}))
+      .catch(() => {
+        delete analysisBundles[slug];
+        return {};
+      });
+  }
+  return analysisBundles[slug].then((bundle) => bundle[question.id] || null);
+}
+
+async function fillAnalysis(slot, question) {
+  if (!slot) return;
+  slot.dataset.questionId = question.id;
+  const analysis = await loadAnalysis(question);
+  if (!slot.isConnected || slot.dataset.questionId !== question.id) return;
+  if (!analysis) {
+    slot.innerHTML = question.answerHtml || question.explanationHtml ? "" : "<p>当前题目没有解析内容。</p>";
+    return;
+  }
+  slot.innerHTML = renderAnalysisHtml(analysis);
+  enhanceRichContent(slot);
+}
+
+// The bundle is validated at build time to contain only <b> <i> <sub> <sup> <br> markup.
+function renderAnalysisHtml(analysis) {
+  const list = (items) => `<ul>${items.map((item) => `<li>${item}</li>`).join("")}</ul>`;
+  const parts = [
+    `<div class="analysis-head"><strong>详细解析</strong><span>${analysis.focus}</span></div>`,
+  ];
+  if (analysis.answerNote) {
+    parts.push(`<p class="analysis-note"><strong>答案说明</strong>${analysis.answerNote}</p>`);
+  }
+  parts.push(`<h4>详解</h4>${analysis.explanation.map((paragraph) => `<p>${paragraph}</p>`).join("")}`);
+  if (analysis.options.length) {
+    const rows = analysis.options.map((option) => `
+      <div class="analysis-option${option.correct ? " correct" : ""}">
+        <span class="option-badge">${escapeHtml(option.label)}</span>
+        <div>${option.analysis}</div>
+      </div>`);
+    parts.push(`<h4>选项分析</h4><div class="analysis-options">${rows.join("")}</div>`);
+  }
+  if (analysis.terms.length) {
+    const terms = analysis.terms.map((item) => `<div><dt>${item.term}</dt><dd>${item.definition}</dd></div>`);
+    parts.push(`<h4>名词解释</h4><dl class="analysis-terms">${terms.join("")}</dl>`);
+  }
+  parts.push(`<h4>知识点整理</h4>${list(analysis.keyPoints)}`);
+  if (analysis.pitfalls.length) {
+    parts.push(`<h4>易错提醒</h4>${list(analysis.pitfalls)}`);
+  }
+  return `<div class="analysis rich-block">${renderFractionMarkup(parts.join(""))}</div>`;
+}
+
+// Analysis fractions may hold <sub>/<sup>, which the text-node LaTeX pass can't see across, so build them
+// here; one $…$ span can hold several fractions joined by text, e.g. $\frac{a}{b}＝\frac{c}{d}$.
+function renderFractionMarkup(html) {
+  const part = "((?:[^{}$]|\\{[^{}$]*\\})*)";
+  const fraction = new RegExp(`\\\\frac\\{${part}\\}\\{${part}\\}`, "g");
+  return html.replace(/\$([^$]*\\frac[^$]*)\$/g, (_, body) =>
+    body.replace(fraction, (__, top, bottom) =>
+      `<span class="math-inline math-frac"><span>${top}</span><span>${bottom}</span></span>`));
 }
 
 function renderAiExplanation(question, { showCached = false } = {}) {
@@ -1682,8 +1752,14 @@ function renderAnswerReview() {
           <div class="answer-review-answer">${renderMarkdownBlock(answer.displayAnswer)}</div>
           ${answer.options.length ? `<div class="answer-review-options">${renderInlineMarkdown(answer.options.join("；"))}</div>` : ""}
           ${answer.briefPrompt ? `<div class="answer-review-prompt">${renderInlineMarkdown(answer.briefPrompt)}</div>` : ""}
+          <details class="answer-review-analysis"><summary>详细解析</summary><div class="analysis-slot"></div></details>
         </div>
       `;
+      const details = item.querySelector(".answer-review-analysis");
+      details.addEventListener("toggle", () => {
+        const slot = details.querySelector(".analysis-slot");
+        if (details.open && !slot.dataset.questionId) fillAnalysis(slot, question);
+      });
       const jumpBtn = document.createElement("button");
       jumpBtn.className = "ghost-btn";
       jumpBtn.textContent = "跳到此题";

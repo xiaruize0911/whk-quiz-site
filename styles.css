@@ -1746,3 +1746,129 @@ button:disabled {
 .option-list.picture-options .option-choice {
   align-items: center;
 }
+
+/* Detailed analysis under the answer */
+.analysis-slot:empty {
+  display: none;
+}
+
+.analysis {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(31, 95, 191, 0.2);
+  line-height: 1.8;
+}
+
+.analysis-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+}
+
+.analysis-head strong {
+  font-size: 1.08rem;
+}
+
+.analysis-head span {
+  color: var(--accent-strong);
+}
+
+.analysis h4 {
+  margin: 18px 0 6px;
+  font-size: 0.98rem;
+  color: var(--accent-strong);
+}
+
+.analysis p {
+  margin: 0 0 8px;
+}
+
+.analysis ul {
+  margin: 0;
+  padding-left: 1.3em;
+}
+
+.analysis li + li {
+  margin-top: 4px;
+}
+
+.analysis-note {
+  margin-top: 10px !important;
+  padding: 10px 12px;
+  border: 1px solid rgba(171, 54, 34, 0.35);
+  border-radius: 12px;
+  background: rgba(171, 54, 34, 0.06);
+}
+
+.analysis-note strong {
+  margin-right: 8px;
+  color: var(--danger);
+}
+
+.analysis-options {
+  display: grid;
+  gap: 8px;
+}
+
+.analysis-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.analysis-option .option-badge {
+  width: 28px;
+  height: 28px;
+  font-size: 0.9rem;
+}
+
+.analysis-option.correct {
+  border-color: rgba(47, 109, 79, 0.5);
+  background: rgba(47, 109, 79, 0.07);
+}
+
+.analysis-option.correct .option-badge {
+  border-color: var(--success);
+  background: var(--success);
+  color: #ffffff;
+}
+
+.analysis-terms {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.analysis-terms div {
+  padding: 8px 12px;
+  border-left: 3px solid rgba(31, 95, 191, 0.35);
+  background: #ffffff;
+  border-radius: 0 10px 10px 0;
+}
+
+.analysis-terms dt {
+  font-weight: 700;
+}
+
+.analysis-terms dd {
+  margin: 2px 0 0;
+}
+
+.answer-review-analysis {
+  margin-top: 8px;
+}
+
+.answer-review-analysis summary {
+  cursor: pointer;
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.answer-review-analysis .analysis {
+  margin-top: 8px;
+}
