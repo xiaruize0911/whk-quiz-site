@@ -1886,3 +1886,112 @@ mjx-container[jax="CHTML"][display="true"] {
   color: var(--muted);
   cursor: not-allowed;
 }
+
+/* Memorization stage (背答案 badges and buttons) */
+.answer-review-title .memory-badge {
+  border: 1px solid var(--line);
+}
+
+.memory-badge.memory-new {
+  color: var(--muted);
+}
+
+.memory-badge.memory-due {
+  border-color: rgba(171, 54, 34, 0.4);
+  color: var(--danger);
+}
+
+.memory-badge.memory-scheduled {
+  color: var(--accent-strong);
+}
+
+.memory-badge.memory-mastered {
+  border-color: rgba(47, 109, 79, 0.45);
+  background: rgba(47, 109, 79, 0.1);
+  color: var(--success);
+}
+
+.memory-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.memory-actions .remember-btn {
+  border-color: rgba(47, 109, 79, 0.45);
+  color: var(--success);
+}
+
+.memory-actions .forget-btn {
+  border-color: rgba(171, 54, 34, 0.4);
+  color: var(--danger);
+}
+
+.memory-note {
+  font-size: 0.9rem;
+}
+
+/* 易混题 in the answer panel */
+.similar-block {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(31, 95, 191, 0.2);
+}
+
+.similar-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: baseline;
+}
+
+.similar-item {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.similar-item summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.similar-label {
+  font-weight: 700;
+  color: var(--accent-strong);
+}
+
+.similar-stem {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.similar-answer {
+  font-weight: 700;
+  color: var(--success);
+}
+
+.similar-body {
+  padding: 0 12px 12px;
+}
+
+.similar-body ol.options {
+  margin: 8px 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.similar-body ol.options li::before {
+  content: attr(data-option) ". ";
+  font-weight: 700;
+}
+
+.similar-key {
+  margin: 8px 0;
+}

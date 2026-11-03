@@ -29,10 +29,13 @@ const LOCAL_AI_GRADE_ENDPOINT = window.location.protocol === "file:"
 const DEEPSEEK_CHAT_ENDPOINT = "https://api.deepseek.com/chat/completions";
 const DEEPSEEK_MODEL = "deepseek-v4-pro";
 const DAY_MS = 24 * 60 * 60 * 1000;
-// Wait before each spaced review once a wrong-book question is answered
-// correctly while due; the last step clears it from the wrong book.
-const REVIEW_INTERVALS = [DAY_MS, 3 * DAY_MS];
-const REVIEW_STEPS = REVIEW_INTERVALS.length + 1;
+// Every question is on a spaced schedule. Answering it right while due moves it one step:
+// step 0 = new or relearning, 1–3 = next review after 1/3/7 days, MASTERED_STEP = 已背牢.
+// A wrong or partial answer sends it back to step 0 and into the wrong book.
+const REVIEW_INTERVALS = [DAY_MS, 3 * DAY_MS, 7 * DAY_MS];
+const MASTERED_STEP = REVIEW_INTERVALS.length + 1;
+// A wrong-book question leaves the book once it has passed the 1- and 3-day reviews.
+const WRONG_CLEAR_STEP = 3;
 
 const defaultProgress = {
   scope: "all",
@@ -184,6 +187,10 @@ function bindEvents() {
     renderKeyboardHelp();
   });
   answerReviewSearch.addEventListener("input", () => renderAnswerReview());
+  answerContent.addEventListener("click", (event) => {
+    const target = findQuestionById(event.target.closest?.("[data-jump-id]")?.dataset.jumpId);
+    if (target) openNextQuestion(target);
+  });
   answerReviewCoverBtn.addEventListener("click", () => {
     state.coverAnswers = !state.coverAnswers;
     persist();
@@ -709,7 +716,7 @@ function gradeChoice(question, selected) {
   const outcome = updateProgress(question.id, isCorrect);
     feedbackBox.className = `feedback-box ${isCorrect ? "correct" : "wrong"}`;
     feedbackBox.textContent = isCorrect
-      ? `回答正确：${selected}${describeReviewOutcome(outcome)}`
+      ? `回答正确：${selected}${describeReviewOutcome(outcome, question.id)}`
       : `回答错误：你选了 ${selected}，正确答案是 ${answer || "未识别"}`;
   feedbackBox.classList.remove("hidden");
   revealAnswer(true);
@@ -747,7 +754,7 @@ function selfMark(result) {
   const tone = result === true ? "correct" : result === "partial" ? "partial" : "wrong";
   feedbackBox.className = `feedback-box ${tone}`;
   feedbackBox.textContent = {
-    correct: `已记为全对${describeReviewOutcome(outcome)}`,
+    correct: `已记为全对${describeReviewOutcome(outcome, currentQuestion.id)}`,
     partial: "已记为部分对，加入错题本，今天再练一次",
     wrong: "已记为不会，加入错题本，今天再练一次",
   }[tone];
@@ -758,35 +765,59 @@ function selfMark(result) {
   }
 }
 
-function isReviewDue(progress) {
-  return (progress?.dueAt || 0) <= Date.now();
+function isMastered(progress) {
+  return (progress?.reviewStep || 0) >= MASTERED_STEP;
 }
 
-function describeReviewOutcome(outcome) {
-  if (outcome === "cleared") return "，已完成复习，移出错题本";
-  if (outcome === "scheduled") return "，按计划延后复习";
+function isReviewDue(progress) {
+  return getAttempts(progress) > 0 && !isMastered(progress) && (progress.dueAt || 0) <= Date.now();
+}
+
+function getMemoryStage(progress) {
+  if (!getAttempts(progress)) return "new";
+  if (isMastered(progress)) return "mastered";
+  return isReviewDue(progress) ? "due" : "scheduled";
+}
+
+function describeMemoryStage(progress) {
+  const stage = getMemoryStage(progress);
+  if (stage === "new") return "新题";
+  if (stage === "mastered") return "已背牢";
+  if (stage === "due") return "待复习";
+  return `${formatReviewDue(progress)} · ${progress.reviewStep || 0}/${MASTERED_STEP}`;
+}
+
+function describeReviewOutcome(outcome, questionId) {
+  const progress = getProgressFor(questionId);
+  if (outcome === "mastered") return "，这道题已背牢";
+  if (outcome === "cleared") return `，移出错题本，${formatReviewDue(progress)}`;
+  if (outcome === "scheduled") return `，${formatReviewDue(progress)}（背题进度 ${progress.reviewStep}/${MASTERED_STEP}）`;
+  if (outcome === "early") return "，还没到复习时间，这次不计入背题进度";
   return "";
 }
 
 // Returns "cleared" / "scheduled" when a due wrong-book question advances its review.
+// Returns what happened to the schedule: "scheduled", "cleared" (left the wrong book),
+// "mastered", "early" (right, but not due yet, so the schedule stays) or "".
 function updateProgress(questionId, result) {
   const progress = getProgressFor(questionId);
+  const advancing = getAttempts(progress) === 0 || isReviewDue(progress);
   let outcome = "";
   if (result === true) {
     progress.correct += 1;
     progress.streak = Math.max(0, progress.streak) + 1;
-    if (state.wrongBook.includes(questionId) && isReviewDue(progress)) {
-      progress.reviewStep = (progress.reviewStep || 0) + 1;
-      if (progress.reviewStep >= REVIEW_STEPS) {
+    if (advancing) {
+      progress.reviewStep = Math.min(MASTERED_STEP, (progress.reviewStep || 0) + 1);
+      const mastered = progress.reviewStep >= MASTERED_STEP;
+      progress.dueAt = mastered ? 0 : Date.now() + REVIEW_INTERVALS[progress.reviewStep - 1];
+      outcome = mastered ? "mastered" : "scheduled";
+      if (progress.reviewStep >= WRONG_CLEAR_STEP && state.wrongBook.includes(questionId)) {
         progress.reviewLevel = 0;
-        progress.reviewStep = 0;
-        progress.dueAt = 0;
         state.wrongBook = state.wrongBook.filter((id) => id !== questionId);
-        outcome = "cleared";
-      } else {
-        progress.dueAt = Date.now() + REVIEW_INTERVALS[progress.reviewStep - 1];
-        outcome = "scheduled";
+        if (!mastered) outcome = "cleared";
       }
+    } else if (!isMastered(progress)) {
+      outcome = "early";
     }
   } else {
     if (result === "partial") {
@@ -827,8 +858,37 @@ function buildAnswerPanel(question) {
   if (question.explanationHtml) {
     parts.push(`<div class="rich-block"><p><strong>原卷解析</strong></p>${question.explanationHtml}</div>`);
   }
+  const similarHtml = buildSimilarHtml(question);
+  if (similarHtml) parts.push(similarHtml);
   parts.push(`<div class="analysis-slot"></div>`);
   return parts.join("");
+}
+
+// 易混题: questions whose stem and options read alike (found at build time, see similarIds).
+function buildSimilarHtml(question) {
+  const similar = (question.similarIds || []).map(findQuestionById).filter(Boolean);
+  if (!similar.length) return "";
+  const items = similar.map((other) => {
+    const answer = other.kind === "choice" ? `答案 ${escapeHtml(normalizeAnswer(other.answerText))}` : "展开看答案";
+    return `
+      <details class="similar-item">
+        <summary>
+          <span class="similar-label">${escapeHtml(other.label || other.number || "")} · ${escapeHtml(getQuestionTopic(other))}</span>
+          <span class="similar-stem">${escapeHtml(clipText(stripHtml(other.promptHtml), 70))}…</span>
+          <span class="similar-answer">${answer}</span>
+        </summary>
+        <div class="similar-body">
+          ${other.promptHtml}${other.optionsHtml}
+          <div class="similar-key"><strong>答案</strong>${other.answerHtml}</div>
+          <button class="ghost-btn" type="button" data-jump-id="${escapeHtml(other.id)}">跳到此题</button>
+        </div>
+      </details>`;
+  });
+  return `
+    <div class="similar-block rich-block">
+      <p class="similar-head"><strong>易混题</strong><span class="muted">题干或选项相近，对照本题答案区分清楚</span></p>
+      ${items.join("")}
+    </div>`;
 }
 
 // Detailed analyses live in data/analysis/<slug>.json and load the first time a subject needs them.
@@ -974,7 +1034,7 @@ function applyAiGradingToProgress(isCorrect, score) {
   feedbackBox.className = `feedback-box ${tone}`;
   const scoreText = typeof score === "number" ? `（${score}/100）` : "";
   feedbackBox.textContent = {
-    correct: `AI 判定基本正确${scoreText}${describeReviewOutcome(outcome)}`,
+    correct: `AI 判定基本正确${scoreText}${describeReviewOutcome(outcome, currentQuestion.id)}`,
     partial: `AI 判定部分正确${scoreText}，已加入错题本`,
     wrong: `AI 判定需要重做${scoreText}，已加入错题本`,
   }[tone];
@@ -1519,6 +1579,10 @@ function chooseQuestion() {
     return chooseShuffledCycleQuestion(subjectQuestions);
   }
 
+  if (state.order === "sprint") {
+    return chooseSprintQuestion(subjectQuestions);
+  }
+
   const weighted = subjectQuestions.map((question) => {
     const progress = getProgressFor(question.id);
     let weight = 1;
@@ -1561,6 +1625,38 @@ function clearAutoNext() {
   }
 }
 
+// 冲刺: the question most likely to be forgotten comes first. Due reviews rank highest (the longer
+// overdue, the more mistakes and the earlier the step, the higher), then new questions, then ones
+// not due yet; 已背牢 comes last. A little noise breaks ties so equal questions rotate.
+function getForgetRisk(progress, now = Date.now()) {
+  if (!getAttempts(progress)) return 60;
+  if (isMastered(progress)) return 0;
+  const mistakes = progress.wrong * 2 + (progress.partial || 0);
+  const step = progress.reviewStep || 0;
+  if (isReviewDue(progress)) {
+    const overdueDays = (now - (progress.dueAt || 0)) / DAY_MS;
+    return 100 + Math.min(30, overdueDays * 5) + mistakes * 4 - step * 5;
+  }
+  const daysLeft = ((progress.dueAt || now) - now) / DAY_MS;
+  return 30 + mistakes * 3 - step * 5 - Math.min(20, daysLeft * 3);
+}
+
+function chooseSprintQuestion(questions) {
+  const pool = questions.length > state.recentQueue.length
+    ? questions.filter((question) => !state.recentQueue.includes(question.id))
+    : questions;
+  let best = null;
+  let bestRisk = -Infinity;
+  pool.forEach((question) => {
+    const risk = getForgetRisk(getProgressFor(question.id)) + Math.random();
+    if (risk > bestRisk) {
+      best = question;
+      bestRisk = risk;
+    }
+  });
+  return best;
+}
+
 function renderStats() {
   const subjectQuestions = getCurrentSubjectQuestions({ filtered: true });
   const subjectStats = subjectQuestions.reduce(
@@ -1570,24 +1666,25 @@ function renderStats() {
       acc.correct += progress.correct;
       acc.wrong += progress.wrong;
       acc.partial += progress.partial || 0;
-      if (state.wrongBook.includes(question.id) && isReviewDue(progress)) acc.due += 1;
+      if (isReviewDue(progress)) acc.due += 1;
+      if (isMastered(progress)) acc.mastered += 1;
+      if (!getAttempts(progress)) acc.fresh += 1;
       if (getWrongReviewLevel(progress) >= 3) acc.highRisk += 1;
       if (getWrongReviewLevel(progress) > 0) acc.review += 1;
       return acc;
     },
-    { seen: 0, correct: 0, wrong: 0, partial: 0, highRisk: 0, review: 0, due: 0 },
+    { seen: 0, correct: 0, wrong: 0, partial: 0, highRisk: 0, review: 0, due: 0, mastered: 0, fresh: 0 },
   );
   const accuracy = getAccuracy(subjectStats);
 
   statsGrid.innerHTML = [
     statCard("当前学科", state.currentSubject),
-    statCard("题目总数", String(subjectQuestions.length)),
-    statCard("出现次数", String(subjectStats.seen)),
-    statCard("正确率", `${accuracy}%`),
-    statCard("答对", String(subjectStats.correct)),
-    statCard("答错/部分对", `${subjectStats.wrong}/${subjectStats.partial}`),
-    statCard("错题本", String(subjectStats.review)),
+    statCard("已背牢", `${subjectStats.mastered}/${subjectQuestions.length}`),
     statCard("今日待复习", String(subjectStats.due)),
+    statCard("新题未做", String(subjectStats.fresh)),
+    statCard("正确率", `${accuracy}%`),
+    statCard("错题本", String(subjectStats.review)),
+    statCard("答错/部分对", `${subjectStats.wrong}/${subjectStats.partial}`),
   ].join("");
 }
 
@@ -1599,9 +1696,13 @@ function renderQuestionLedger() {
   const answered = questions.filter((question) => getAttempts(getProgressFor(question.id)) > 0).length;
   const wrongCount = questions.filter((question) => state.wrongBook.includes(question.id)).length;
   const totalAttempts = questions.reduce((sum, question) => sum + getAttempts(getProgressFor(question.id)), 0);
+  const masteredCount = questions.filter((question) => isMastered(getProgressFor(question.id))).length;
+  const dueCount = questions.filter((question) => isReviewDue(getProgressFor(question.id))).length;
 
   ledgerSummary.innerHTML = [
     `<span>${topic ? escapeHtml(topic) : "全部考点"} · 题目 ${questions.length}</span>`,
+    `<span>已背牢 ${masteredCount}</span>`,
+    `<span>待复习 ${dueCount}</span>`,
     `<span>已答 ${answered}</span>`,
     `<span>错题 ${wrongCount}</span>`,
     `<span>作答 ${totalAttempts}</span>`,
@@ -1663,23 +1764,22 @@ function renderTopicMastery() {
         acc.correct += progress.correct;
         acc.wrong += progress.wrong;
         acc.partial += progress.partial || 0;
-        if (state.wrongBook.includes(question.id)) {
-          acc.wrongBook += 1;
-          if (isReviewDue(progress)) acc.due += 1;
-        }
+        if (state.wrongBook.includes(question.id)) acc.wrongBook += 1;
+        if (isReviewDue(progress)) acc.due += 1;
+        if (isMastered(progress)) acc.mastered += 1;
         return acc;
       },
-      { practiced: 0, correct: 0, wrong: 0, partial: 0, wrongBook: 0, due: 0 },
+      { practiced: 0, correct: 0, wrong: 0, partial: 0, wrongBook: 0, due: 0, mastered: 0 },
     );
     const accuracy = getAccuracy(totals);
-    const coverage = Math.round((totals.practiced / questions.length) * 100);
+    const masteredShare = Math.round((totals.mastered / questions.length) * 100);
     const tone = getMasteryTone(totals.practiced, accuracy);
     cards.push(`
       <button class="mastery-card mastery-${tone}${topic === current ? " active" : ""}" data-topic="${escapeHtml(topic)}">
         <strong>${escapeHtml(topic)}</strong>
         <span class="mastery-accuracy">${totals.practiced ? `${accuracy}%` : "未练"}</span>
-        <span class="mastery-bar"><span style="width:${coverage}%"></span></span>
-        <span class="mastery-meta">已练 ${totals.practiced}/${questions.length} · 错题 ${totals.wrongBook}${totals.due ? ` · 待复习 ${totals.due}` : ""}</span>
+        <span class="mastery-bar" title="已背牢 ${totals.mastered}/${questions.length}"><span style="width:${masteredShare}%"></span></span>
+        <span class="mastery-meta">背牢 ${totals.mastered}/${questions.length} · 已练 ${totals.practiced}${totals.due ? ` · 待复习 ${totals.due}` : ""}${totals.wrongBook ? ` · 错题 ${totals.wrongBook}` : ""}</span>
       </button>`);
   });
   topicMastery.innerHTML = `
@@ -1799,14 +1899,22 @@ function renderAnswerReview() {
           <div class="answer-review-title">
             <strong>${escapeHtml(question.label || question.number || "题目")}</strong>
             <span>${question.kind === "choice" ? "选择题" : "主观题"}</span>
+            <span class="memory-badge memory-${getMemoryStage(getProgressFor(question.id))}">${escapeHtml(describeMemoryStage(getProgressFor(question.id)))}</span>
           </div>
           ${answer.keywords.length ? `<div class="answer-keywords">${answer.keywords.map((keyword) => `<span>${escapeHtml(keyword)}</span>`).join("")}</div>` : ""}
           <div class="answer-review-answer">${renderMarkdownBlock(answer.displayAnswer)}</div>
           ${answer.options.length ? `<div class="answer-review-options">${renderInlineMarkdown(answer.options.join("；"))}</div>` : ""}
           ${answer.briefPrompt ? `<div class="answer-review-prompt">${renderInlineMarkdown(answer.briefPrompt)}</div>` : ""}
           <details class="answer-review-analysis"><summary>详细解析</summary><div class="analysis-slot"></div></details>
+          <div class="memory-actions">
+            <button class="ghost-btn remember-btn" type="button">记住了</button>
+            <button class="ghost-btn forget-btn" type="button">没记住</button>
+            <span class="memory-note muted"></span>
+          </div>
         </div>
       `;
+      item.querySelector(".remember-btn").addEventListener("click", () => markRemembered(item, question, true));
+      item.querySelector(".forget-btn").addEventListener("click", () => markRemembered(item, question, false));
       const details = item.querySelector(".answer-review-analysis");
       details.addEventListener("toggle", () => {
         const slot = details.querySelector(".analysis-slot");
@@ -1827,6 +1935,19 @@ function renderAnswerReview() {
     answerReviewList.appendChild(section);
   });
   enhanceRichContent(answerReviewList);
+}
+
+// 背答案 self-check: "记住了" counts as answering right (it moves the schedule on when due),
+// "没记住" as answering wrong (back to step 0 and into the wrong book).
+function markRemembered(item, question, remembered) {
+  const outcome = updateProgress(question.id, remembered);
+  const progress = getProgressFor(question.id);
+  const badge = item.querySelector(".memory-badge");
+  badge.className = `memory-badge memory-${getMemoryStage(progress)}`;
+  badge.textContent = describeMemoryStage(progress);
+  item.querySelector(".memory-note").textContent = remembered
+    ? (describeReviewOutcome(outcome, question.id).replace(/^，/, "") || "已记录")
+    : "已加入错题本，今天再复习一遍";
 }
 
 function groupQuestionsForAnswerReview(questions) {
@@ -2250,7 +2371,7 @@ function renderWrongbook() {
     item.innerHTML = `
       <p><strong>${question.label}</strong> · ${question.section || "未分类"}</p>
       <p class="muted">${preview}${promptText.length > 46 ? "..." : ""}</p>
-      <p class="muted">${formatReviewDue(progress)} · 复习进度 ${progress.reviewStep || 0}/${REVIEW_STEPS} · 累计错 ${progress.wrong} 次 / 部分对 ${progress.partial || 0} 次 / 对 ${progress.correct} 次</p>
+      <p class="muted">${formatReviewDue(progress)} · 复习进度 ${Math.min(progress.reviewStep || 0, WRONG_CLEAR_STEP)}/${WRONG_CLEAR_STEP} · 累计错 ${progress.wrong} 次 / 部分对 ${progress.partial || 0} 次 / 对 ${progress.correct} 次</p>
     `;
     const actionBar = document.createElement("div");
     actionBar.className = "toolbar-actions";
@@ -2343,8 +2464,7 @@ function filterQuestionsByMode(allQuestions) {
     ? allQuestions.filter((question) => getQuestionTopic(question) === topic)
     : allQuestions;
   if (state.scope === "due") {
-    const wrongIds = new Set(state.wrongBook);
-    return questions.filter((question) => wrongIds.has(question.id) && isReviewDue(getProgressFor(question.id)));
+    return questions.filter((question) => isReviewDue(getProgressFor(question.id)));
   }
   if (state.scope === "choice") {
     return questions.filter((question) => question.kind === "choice");
@@ -2795,6 +2915,17 @@ function migrateMode(progress) {
   }[progress.mode];
   if (legacy) Object.assign(progress, legacy);
   delete progress.mode;
+  // Before every question had a schedule, only wrong-book questions did: start the others
+  // that were already answered right at their first (1-day) review.
+  if (progress.scheduleVersion !== 2) {
+    Object.entries(progress.stats || {}).forEach(([id, stat]) => {
+      if ((stat.correct || 0) > 0 && !(stat.reviewStep > 0) && !(progress.wrongBook || []).includes(id)) {
+        stat.reviewStep = 1;
+        stat.dueAt = (stat.lastSeenAt || Date.now()) + DAY_MS;
+      }
+    });
+    progress.scheduleVersion = 2;
+  }
   progress.topicBySubject = progress.topicBySubject || {};
   return progress;
 }
