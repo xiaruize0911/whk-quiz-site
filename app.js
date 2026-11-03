@@ -2,8 +2,24 @@ const questionBank = window.__QUESTION_BANK__ || { subjects: {}, allQuestions: [
 
 const STORAGE_KEY = "g3-midterm-drill-lab-v1";
 const API_KEY_STORAGE_KEY = "final-drill-lab-deepseek-api-key";
-const ANALYSIS_VERSION = "20261103";
+const ANALYSIS_VERSION = "20261103h";
 const analysisBundles = {};
+let mathQueue = Promise.resolve();
+
+// The copied answer list is plain text, so write formulas the way they are typed: \(x^{2}\le 1\) → x²≤1.
+const PLAIN_COMMANDS = {
+  le: "≤", ge: "≥", ne: "≠", approx: "≈", pm: "±", times: "×", div: "÷", cdot: "·", in: "∈", notin: "∉",
+  cap: "∩", cup: "∪", subseteq: "⊆", subsetneq: "⊊", subsetneqq: "⫋", complement: "∁", varnothing: "∅",
+  forall: "∀", exists: "∃", neg: "¬", land: "∧", lor: "∨", infty: "∞", because: "∵", therefore: "∴",
+  to: "→", Rightarrow: "⇒", Leftrightarrow: "⇔", uparrow: "↑", downarrow: "↓", rightleftharpoons: "⇌",
+  triangle: "△", angle: "∠", circ: "°", cdots: "…", perp: "⊥", parallel: "∥", alpha: "α", beta: "β",
+  gamma: "γ", theta: "θ", lambda: "λ", mu: "μ", pi: "π", rho: "ρ", varphi: "φ", omega: "ω",
+  varepsilon: "ε", eta: "η", Delta: "Δ", Omega: "Ω", sim: "~", propto: "∝",
+};
+const PLAIN_SCRIPTS = {
+  "^": Object.fromEntries([..."0123456789+-"].map((ch, i) => [ch, "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻"[i]])),
+  _: Object.fromEntries([..."0123456789+-"].map((ch, i) => [ch, "₀₁₂₃₄₅₆₇₈₉₊₋"[i]])),
+};
 const LOCAL_AI_EXPLAIN_ENDPOINT = window.location.protocol === "file:"
   ? "http://127.0.0.1:8767/api/explain"
   : "/api/explain";
@@ -855,17 +871,7 @@ function renderAnalysisHtml(analysis) {
   if (analysis.pitfalls.length) {
     parts.push(`<h4>易错提醒</h4>${list(analysis.pitfalls)}`);
   }
-  return `<div class="analysis rich-block">${renderFractionMarkup(parts.join(""))}</div>`;
-}
-
-// Analysis fractions may hold <sub>/<sup>, which the text-node LaTeX pass can't see across, so build them
-// here; one $…$ span can hold several fractions joined by text, e.g. $\frac{a}{b}＝\frac{c}{d}$.
-function renderFractionMarkup(html) {
-  const part = "((?:[^{}$]|\\{[^{}$]*\\})*)";
-  const fraction = new RegExp(`\\\\frac\\{${part}\\}\\{${part}\\}`, "g");
-  return html.replace(/\$([^$]*\\frac[^$]*)\$/g, (_, body) =>
-    body.replace(fraction, (__, top, bottom) =>
-      `<span class="math-inline math-frac"><span>${top}</span><span>${bottom}</span></span>`));
+  return `<div class="analysis rich-block">${parts.join("")}</div>`;
 }
 
 function renderAiExplanation(question, { showCached = false } = {}) {
@@ -1268,6 +1274,7 @@ function buildDeepSeekMessages(question) {
         "4. 容易错在哪里",
         "5. 最后答案",
         "不要编造题目中没有的信息。",
+        "数学式、物理式和化学式用 LaTeX 写：行内放在 $...$ 中，单独成行的放在 $$...$$ 中（化学式用 \\mathrm{...}）。",
       ].join("\n"),
     },
     {
@@ -1361,11 +1368,36 @@ function resultFromAiGrade(isCorrect, score) {
 
 function truncateText(value, maxLength) {
   const text = String(value || "");
-  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+  return text.length > maxLength ? `${clipText(text, maxLength)}...` : text;
+}
+
+// Cut plain text to about maxLength characters without splitting a \( … \) formula.
+function clipText(text, maxLength) {
+  if (text.length <= maxLength) return text;
+  let end = maxLength;
+  // The last formula opened before the cut is unfinished unless a "\)" ends inside the kept part.
+  const open = text.lastIndexOf("\\(", end - 2);
+  if (open !== -1 && text.lastIndexOf("\\)", end - 2) < open) {
+    const close = text.indexOf("\\)", open);
+    end = close === -1 ? open : close + 2;
+  }
+  return text.slice(0, end);
 }
 
 function formatAiExplanation(content) {
-  const lines = String(content || "").replace(/\r\n/g, "\n").split("\n");
+  // Display math may span lines, so lift it out before the line-by-line Markdown pass.
+  const displayMath = [];
+  const source = String(content || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]/g, (_, dollar, bracket) => {
+      displayMath.push(`\\[${escapeHtml((dollar ?? bracket).trim())}\\]`);
+      return `\n@@MATH${displayMath.length - 1}@@\n`;
+    });
+  return formatMarkdownLines(source).replace(/@@MATH(\d+)@@/g, (_, index) => displayMath[Number(index)]);
+}
+
+function formatMarkdownLines(source) {
+  const lines = source.split("\n");
   const html = [];
   let paragraph = [];
   let listItems = [];
@@ -1440,6 +1472,12 @@ function renderInlineMarkdown(value) {
   html = html.replace(/`([^`]+)`/g, (_, code) => {
     const token = `@@CODE${codeSpans.length}@@`;
     codeSpans.push(`<code>${code}</code>`);
+    return token;
+  });
+  // Keep inline math away from the * and _ rules; AI answers write it as $…$ or \(…\).
+  html = html.replace(/\\\((.+?)\\\)|\$([^$\n]+?)\$/g, (_, paren, dollar) => {
+    const token = `@@CODE${codeSpans.length}@@`;
+    codeSpans.push(`\\(${paren ?? dollar}\\)`);
     return token;
   });
   html = html
@@ -1562,7 +1600,7 @@ function renderQuestionLedger() {
     const accuracy = getAccuracy(progress);
     const row = document.createElement("article");
     row.className = `ledger-row ${question.id === currentQuestion?.id ? "current" : ""}`;
-    const preview = stripHtml(question.promptHtml).slice(0, 88) || question.label;
+    const preview = escapeHtml(clipText(stripHtml(question.promptHtml), 88) || question.label);
     row.innerHTML = `
       <div class="ledger-index">${index + 1}</div>
       <div class="ledger-main">
@@ -1591,6 +1629,7 @@ function renderQuestionLedger() {
     row.appendChild(jumpBtn);
     questionLedger.appendChild(row);
   });
+  typesetMath(questionLedger);
 }
 
 function getMasteryTone(practiced, accuracy) {
@@ -1949,7 +1988,34 @@ function buildAnswerReviewText() {
     });
     lines.push("");
   });
-  return lines.join("\n").trim();
+  return latexToPlainText(lines.join("\n").trim());
+}
+
+
+// Formulas in the copied answer list: \(x^{2}\le 1\) → x²≤1 (tables PLAIN_COMMANDS/PLAIN_SCRIPTS at the top).
+function latexToPlainText(text) {
+  return String(text || "").replace(/\\\(([\s\S]*?)\\\)/g, (_, tex) => {
+    let out = tex.replace(/\^\{\\circ\}/g, "°");
+    for (let i = 0; i < 4; i += 1) {
+      out = out
+        .replace(/\\d?frac\{([^{}]*)\}\{([^{}]*)\}/g, (__, a, b) => `${wrapPlain(a)}/${wrapPlain(b)}`)
+        .replace(/\\sqrt\[3\]\{([^{}]*)\}/g, (__, a) => `∛${wrapPlain(a)}`)
+        .replace(/\\sqrt\{([^{}]*)\}/g, (__, a) => `√${wrapPlain(a)}`)
+        .replace(/\\(?:mathrm|text)\{([^{}]*)\}/g, "$1")
+        .replace(/([\^_])\{([^{}]*)\}/g, (__, mark, body) =>
+          /^[\d+-]+$/.test(body) ? [...body].map((ch) => PLAIN_SCRIPTS[mark][ch]).join("") : `${mark}(${body})`);
+    }
+    return out
+      .replace(/\\([A-Za-z]+) ?/g, (match, name) => PLAIN_COMMANDS[name] ?? (/^(?:sin|cos|tan|log|ln|lg|max|min)$/.test(name) ? name : ""))
+      .replace(/\\([{}%#&$ ,])/g, (__, ch) => (ch === "," || ch === " " ? " " : ch))
+      .replace(/\{\}/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  });
+}
+
+function wrapPlain(value) {
+  return /^[\w.]+$/.test(value) ? value : `(${value})`;
 }
 
 async function copyAnswerReviewText() {
@@ -2166,10 +2232,11 @@ function renderWrongbook() {
     const tier = getWrongTier(level);
     const item = document.createElement("div");
     item.className = `wrong-item wrong-item-${tier.key}`;
-    const preview = stripHtml(question.promptHtml).slice(0, 46) || question.label;
+    const promptText = stripHtml(question.promptHtml);
+    const preview = escapeHtml(clipText(promptText, 46) || question.label);
     item.innerHTML = `
       <p><strong>${question.label}</strong> · ${question.section || "未分类"}</p>
-      <p class="muted">${preview}${preview.length >= 46 ? "..." : ""}</p>
+      <p class="muted">${preview}${promptText.length > 46 ? "..." : ""}</p>
       <p class="muted">${formatReviewDue(progress)} · 复习进度 ${progress.reviewStep || 0}/${REVIEW_STEPS} · 累计错 ${progress.wrong} 次 / 部分对 ${progress.partial || 0} 次 / 对 ${progress.correct} 次</p>
     `;
     const actionBar = document.createElement("div");
@@ -2198,6 +2265,7 @@ function renderWrongbook() {
     });
     wrongbookList.appendChild(groupEl);
   });
+  typesetMath(wrongbookList);
 }
 
 function formatReviewDue(progress) {
@@ -2468,72 +2536,27 @@ function chooseOptionLabelSequence(matches) {
 }
 
 function enhanceRichContent(container) {
-  renderInlineLatex(container);
   renderMathScripts(container);
   markFormulaImages(container);
+  typesetMath(container);
 }
 
-function renderInlineLatex(container) {
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-  const textNodes = [];
-  while (walker.nextNode()) {
-    if (walker.currentNode.nodeValue.includes("$")) {
-      textNodes.push(walker.currentNode);
-    }
-  }
-  textNodes.forEach((node) => {
-    const parts = node.nodeValue.split(/(\$[^$]+\$)/g).filter(Boolean);
-    if (parts.length <= 1) return;
-    const fragment = document.createDocumentFragment();
-    parts.forEach((part) => {
-      if (part.startsWith("$") && part.endsWith("$")) {
-        fragment.appendChild(latexToElement(part.slice(1, -1)));
-      } else {
-        fragment.appendChild(document.createTextNode(part));
-      }
-    });
-    node.parentNode.replaceChild(fragment, node);
-  });
+// Formulas are LaTeX in \( … \) (inline) or \[ … \] (display), typeset by the vendored MathJax.
+// Calls are queued so typesetting never overlaps; before MathJax has loaded they are skipped and
+// the whole page is typeset once it is ready (window.onMathJaxReady, set in index.html's config).
+function typesetMath(container) {
+  if (!container || !window.MathJax?.typesetPromise) return;
+  mathQueue = mathQueue
+    .then(() => {
+      if (!container.isConnected) return undefined;
+      // Forget math from content that has since been replaced; rendered output stays on the page.
+      window.MathJax.typesetClear();
+      return window.MathJax.typesetPromise([container]);
+    })
+    .catch((error) => console.warn("MathJax:", error));
 }
 
-function latexToElement(source) {
-  const span = document.createElement("span");
-  span.className = "math-inline";
-  const scriptPair = source.match(/^oal\(([^,]+),([^)]+)\)$/);
-  if (scriptPair) {
-    span.classList.add("math-script-pair");
-    span.innerHTML = `<sup>${escapeHtml(formatMathText(scriptPair[1]))}</sup><sub>${escapeHtml(formatMathText(scriptPair[2]))}</sub>`;
-    return span;
-  }
-  const frac = source.match(/^\\frac\{(.+)\}\{(.+)\}$/);
-  if (frac) {
-    span.classList.add("math-frac");
-    span.innerHTML = `<span>${formatMathHtml(frac[1])}</span><span>${formatMathHtml(frac[2])}</span>`;
-    return span;
-  }
-  const sqrt = source.match(/^\\sqrt\{([^{}]+)\}$/);
-  if (sqrt) {
-    span.classList.add("math-root");
-    span.innerHTML = `√${formatMathHtml(sqrt[1])}`;
-    return span;
-  }
-  const vector = source.match(/^\\overrightarrow\{([^{}]+)\}$/);
-  if (vector) {
-    span.classList.add("math-vector");
-    span.textContent = vector[1];
-    return span;
-  }
-  span.innerHTML = formatMathHtml(source);
-  return span;
-}
-
-function formatMathText(source) {
-  return String(source).replace(/\\sqrt\{([^{}]+)\}/g, "√$1");
-}
-
-function formatMathHtml(source) {
-  return renderMathScriptHtml(escapeHtml(formatMathText(source)));
-}
+window.onMathJaxReady = () => typesetMath(document.body);
 
 function renderMathScripts(container) {
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
@@ -2542,6 +2565,7 @@ function renderMathScripts(container) {
       if (!parent || parent.closest(".math-inline, code, pre, textarea, button")) {
         return NodeFilter.FILTER_REJECT;
       }
+      if (/\\[([]|\$\$/.test(node.nodeValue)) return NodeFilter.FILTER_REJECT;
       return shouldRenderMathScripts(node.nodeValue)
         ? NodeFilter.FILTER_ACCEPT
         : NodeFilter.FILTER_REJECT;

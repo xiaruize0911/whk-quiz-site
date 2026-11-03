@@ -4,7 +4,21 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>高三期中刷题本</title>
-    <link rel="stylesheet" href="./styles.css?v=20261103b" />
+    <link rel="stylesheet" href="./styles.css?v=20261103h" />
+    <script>
+      window.MathJax = {
+        tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]] },
+        options: { enableMenu: false },
+        chtml: { matchFontHeight: false },
+        startup: {
+          typeset: false,
+          pageReady() {
+            return MathJax.startup.defaultPageReady().then(() => window.onMathJaxReady?.());
+          },
+        },
+      };
+    </script>
+    <script defer src="./vendor/mathjax/tex-chtml.js?v=3.2.2"></script>
   </head>
   <body>
     <header class="mobile-bar">
@@ -198,7 +212,7 @@
       <img id="image-zoom-img" alt="" />
     </div>
 
-    <script src="./data/questions.js"></script>
-    <script src="./app.js?v=20261103b"></script>
+    <script src="./data/questions.js?v=20261103h"></script>
+    <script src="./app.js?v=20261103h"></script>
   </body>
 </html>

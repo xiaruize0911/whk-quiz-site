@@ -1872,3 +1872,11 @@ button:disabled {
 .answer-review-analysis .analysis {
   margin-top: 8px;
 }
+
+/* MathJax formulas */
+mjx-container[jax="CHTML"][display="true"] {
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  padding: 2px 0;
+}

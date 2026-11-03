@@ -93,6 +93,7 @@ async function handleExplain(request, response) {
             "4. 容易错在哪里",
             "5. 最后答案",
             "不要编造题目中没有的信息。",
+            "数学式、物理式和化学式用 LaTeX 写：行内放在 $...$ 中，单独成行的放在 $$...$$ 中（化学式用 \\mathrm{...}）。",
           ].join("\n"),
         },
         {
