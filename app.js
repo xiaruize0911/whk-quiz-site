@@ -132,6 +132,8 @@ const aiGradingMeta = document.getElementById("ai-grading-meta");
 
 let currentQuestion = null;
 let answeredThisRound = false;
+// Once the answer is on screen the question is locked: no picking an option, no editing the typed answer.
+let answerRevealed = false;
 let autoNextTimer = null;
 
 init();
@@ -467,6 +469,7 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
   clearAutoNext();
   currentQuestion = question;
   answeredThisRound = false;
+  setAnswerLocked(false);
   if (!currentQuestion) {
     questionMeta.textContent = "当前模式没有可用题目";
     questionTitle.textContent = "换个模式或先积累错题";
@@ -601,7 +604,7 @@ function stripOptionLabel(html, label) {
 function handleOptionClick(event) {
   const option = event.target.closest?.("[data-choice-label]");
   if (!option || !currentQuestion) return;
-  if (answeredThisRound && event.target.closest("img")) return;
+  if ((answeredThisRound || answerRevealed) && event.target.closest("img")) return;
   event.stopPropagation();
   gradeChoice(currentQuestion, option.dataset.choiceLabel);
 }
@@ -698,7 +701,7 @@ function keyToChoiceLabel(key) {
 }
 
 function gradeChoice(question, selected) {
-  if (answeredThisRound) return;
+  if (answeredThisRound || answerRevealed) return;
   const answer = normalizeAnswer(question.answerText);
   const isCorrect = answer === selected;
   answeredThisRound = true;
@@ -718,12 +721,22 @@ function gradeChoice(question, selected) {
 function revealAnswer(fromScoring) {
   if (!currentQuestion) return;
   answerContent.classList.remove("hidden");
+  setAnswerLocked(true);
   if (!fromScoring && !answeredThisRound && currentQuestion.kind === "choice") {
     feedbackBox.className = "feedback-box wrong";
     feedbackBox.textContent = `正确答案：${normalizeAnswer(currentQuestion.answerText) || "未识别"}`;
     feedbackBox.classList.remove("hidden");
     markChoiceOptions(normalizeAnswer(currentQuestion.answerText));
   }
+}
+
+function setAnswerLocked(locked) {
+  answerRevealed = locked;
+  subjectiveInput.readOnly = locked;
+  subjectiveInput.classList.toggle("locked", locked);
+  subjectiveInput.placeholder = locked
+    ? "答案已显示，不能再作答。"
+    : "在这里输入答案，显示答案后自行对照批改。";
 }
 
 // result: true (全对), "partial" (部分对) or false (不会/错).
