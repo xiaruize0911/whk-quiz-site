@@ -581,12 +581,16 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
 
   renderKeyboardHelp();
   renderQuestionStage();
+  subjectiveActions.classList.remove("is-pending");
   if (currentQuestion.kind === "choice") {
+    answerContent.before(feedbackBox);
     renderChoiceQuestion(currentQuestion, choiceContent.optionsHtml);
     choiceWrapper.classList.remove("hidden");
     inputWrapper.classList.add("hidden");
     subjectiveActions.classList.add("hidden");
   } else {
+    // Self-grading comes after reading the answer, so the bar and its feedback follow it.
+    subjectiveActions.after(feedbackBox);
     choiceWrapper.classList.add("hidden");
     inputWrapper.classList.remove("hidden");
     subjectiveActions.classList.remove("hidden");
@@ -748,6 +752,8 @@ function gradeChoice(question, selected) {
   revealAnswer(true);
   if (isCorrect) {
     queueAutoNext();
+  } else {
+    scrollAnswerIntoView();
   }
 }
 
@@ -761,6 +767,19 @@ function revealAnswer(fromScoring) {
     feedbackBox.classList.remove("hidden");
     markChoiceOptions(normalizeAnswer(currentQuestion.answerText));
   }
+  subjectiveActions.classList.toggle("is-pending", currentQuestion.kind !== "choice" && !answeredThisRound);
+  if (!fromScoring) scrollAnswerIntoView();
+}
+
+// Bring the result into view when it opened below the fold, keeping a little of what came
+// before it (the options, or the end of the written answer) on screen.
+function scrollAnswerIntoView() {
+  const target = feedbackBox.classList.contains("hidden") ? answerContent : feedbackBox;
+  const top = target.getBoundingClientRect().top;
+  const offset = getStickyTopOffset();
+  if (top >= offset && top <= window.innerHeight * 0.6) return;
+  // Instant: a smooth scroll gets cut short when the detailed analysis loads mid-way.
+  window.scrollTo({ top: Math.max(0, window.scrollY + top - offset - 72) });
 }
 
 function setAnswerLocked(locked) {
@@ -1895,12 +1914,17 @@ function findSequentialNeighbor(offset) {
   return null;
 }
 
+// Height covered by the sticky bars at the top of the page.
+function getStickyTopOffset() {
+  const mobileBarHeight = window.matchMedia("(max-width: 1080px)").matches ? 56 : 0;
+  const toolbarHeight = window.matchMedia("(max-width: 720px)").matches ? 0 : questionToolbar.offsetHeight;
+  return mobileBarHeight + toolbarHeight + 12;
+}
+
 function scrollQuestionIntoView() {
   if (state.activeView !== "practice") return;
   const top = practiceView.getBoundingClientRect().top + window.scrollY;
-  const mobileBarHeight = window.matchMedia("(max-width: 1080px)").matches ? 56 : 0;
-  const toolbarHeight = window.matchMedia("(max-width: 720px)").matches ? 0 : questionToolbar.offsetHeight;
-  const offset = mobileBarHeight + toolbarHeight + 12;
+  const offset = getStickyTopOffset();
   if (window.scrollY > top - offset) {
     window.scrollTo({ top: Math.max(0, top - offset) });
   }

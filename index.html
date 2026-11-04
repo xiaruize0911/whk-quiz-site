@@ -19,7 +19,7 @@
         if (theme.mode) document.documentElement.dataset.mode = theme.mode;
       } catch (error) {}
     </script>
-    <link rel="stylesheet" href="./styles.css?v=20261104e" />
+    <link rel="stylesheet" href="./styles.css?v=20261104g" />
     <script>
       window.MathJax = {
         tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]] },
@@ -130,14 +130,15 @@
             <textarea id="subjective-input" class="subjective-input" placeholder="在这里输入答案，显示答案后自行对照批改。"></textarea>
           </div>
 
+          <div id="feedback-box" class="feedback-box hidden"></div>
+          <div id="answer-content" class="answer-panel hidden"></div>
+
           <div id="subjective-actions" class="subjective-actions hidden">
+            <span class="self-grade-hint">对照答案自评</span>
             <button id="mark-correct-btn" class="success-btn">全对</button>
             <button id="mark-partial-btn" class="partial-btn">部分对</button>
             <button id="mark-wrong-btn" class="danger-btn">不会</button>
           </div>
-
-          <div id="feedback-box" class="feedback-box hidden"></div>
-          <div id="answer-content" class="answer-panel hidden"></div>
           </div>
         </section>
 
@@ -229,6 +230,6 @@
     </div>
 
     <script src="./data/questions.js?v=20261103j"></script>
-    <script src="./app.js?v=20261104e"></script>
+    <script src="./app.js?v=20261104g"></script>
   </body>
 </html>
