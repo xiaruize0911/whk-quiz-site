@@ -7,6 +7,11 @@
     <meta name="theme-color" content="#f3f4f7" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)" />
     <title>高三期中刷题本</title>
+    <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="./favicon.ico" sizes="48x48" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="apple-mobile-web-app-title" content="刷题本" />
     <script>
       try {
         const theme = JSON.parse(localStorage.getItem("g3-drill-theme") || "{}");
@@ -14,7 +19,7 @@
         if (theme.mode) document.documentElement.dataset.mode = theme.mode;
       } catch (error) {}
     </script>
-    <link rel="stylesheet" href="./styles.css?v=20261104b" />
+    <link rel="stylesheet" href="./styles.css?v=20261104c" />
     <script>
       window.MathJax = {
         tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]] },
@@ -147,8 +152,11 @@
           <div id="topic-mastery" class="topic-mastery"></div>
           <section class="wrongbook-section">
             <div class="mastery-head">
-              <h3>错题强化</h3>
-              <button id="clear-wrongbook" class="ghost-btn mastery-clear">清空本学科错题</button>
+              <h3>错题本</h3>
+              <div class="wrongbook-head-actions">
+                <button id="drill-wrong-btn" class="primary-btn">只刷错题</button>
+                <button id="clear-wrongbook" class="ghost-btn">清空</button>
+              </div>
             </div>
             <div id="wrongbook-list" class="wrongbook-list"></div>
           </section>
@@ -216,6 +224,6 @@
     </div>
 
     <script src="./data/questions.js?v=20261103j"></script>
-    <script src="./app.js?v=20261104b"></script>
+    <script src="./app.js?v=20261104c"></script>
   </body>
 </html>

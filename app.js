@@ -22,6 +22,8 @@ const STAGE_LABELS = { mastered: "已背牢", scheduled: "复习中", due: "待�
 const ANALYSIS_VERSION = "20261103h";
 const analysisBundles = {};
 let mathQueue = Promise.resolve();
+// Which slice of the wrong book the 进度 page lists: all, due, or a tier key.
+let wrongFilter = "all";
 
 // The copied answer list is plain text, so write formulas the way they are typed: \(x^{2}\le 1\) → x²≤1.
 const PLAIN_COMMANDS = {
@@ -101,6 +103,7 @@ const revealBtn = document.getElementById("reveal-btn");
 const markCorrectBtn = document.getElementById("mark-correct-btn");
 const markWrongBtn = document.getElementById("mark-wrong-btn");
 const clearWrongbookBtn = document.getElementById("clear-wrongbook");
+const drillWrongBtn = document.getElementById("drill-wrong-btn");
 const resetSubjectStatsBtn = document.getElementById("reset-subject-stats");
 const scopeButtons = Array.from(document.querySelectorAll(".scope-btn"));
 const orderButtons = Array.from(document.querySelectorAll(".order-btn"));
@@ -232,6 +235,11 @@ function bindEvents() {
     state.answerDrafts[currentQuestion.id] = subjectiveInput.value;
     persist();
   });
+  drillWrongBtn.addEventListener("click", () => {
+    switchView("practice");
+    applyModeChange({ scope: "wrong" });
+  });
+  wrongbookList.addEventListener("click", handleWrongbookClick);
   clearWrongbookBtn.addEventListener("click", () => {
     const subjectIds = new Set(getCurrentSubjectQuestions().map((question) => question.id));
     const count = state.wrongBook.filter((id) => subjectIds.has(id)).length;
@@ -1897,6 +1905,7 @@ function getWrongTier(level) {
   if (level >= 3) {
     return {
       key: "danger",
+      short: "高危",
       title: "红色高危",
       label: "错 3 次以上",
       hint: "答对后隔 1 天、3 天各复习一次，三轮都答对即移出。",
@@ -1905,6 +1914,7 @@ function getWrongTier(level) {
   if (level === 2) {
     return {
       key: "focus",
+      short: "重点",
       title: "重点复刷",
       label: "错 2 次",
       hint: "答对后隔 1 天、3 天各复习一次，三轮都答对即移出。",
@@ -1913,6 +1923,7 @@ function getWrongTier(level) {
   if (level === 1) {
     return {
       key: "normal",
+      short: "普通",
       title: "普通错题",
       label: "错 1 次",
       hint: "答对后隔 1 天、3 天各复习一次，三轮都答对即移出。",
@@ -1928,8 +1939,7 @@ function getWrongTier(level) {
 
 function renderWrongbook() {
   cleanupWrongBook();
-  const subjectQuestions = getCurrentSubjectQuestions({ filtered: true });
-  const questionMap = new Map(subjectQuestions.map((question) => [question.id, question]));
+  const questionMap = new Map(getCurrentSubjectQuestions().map((question) => [question.id, question]));
   const wrongQuestions = Array.from(new Set(state.wrongBook))
     .map((id) => questionMap.get(id))
     .filter(Boolean)
@@ -1942,72 +1952,87 @@ function renderWrongbook() {
         || (progressB.wrong || 0) - (progressA.wrong || 0)
         || (progressB.lastSeenAt || 0) - (progressA.lastSeenAt || 0);
     });
+  drillWrongBtn.disabled = !wrongQuestions.length;
+  clearWrongbookBtn.disabled = !wrongQuestions.length;
 
   if (!wrongQuestions.length) {
-    wrongbookList.innerHTML = `<p class="muted">当前学科还没有需要强化的错题。</p>`;
+    wrongbookList.innerHTML = `<p class="wrong-empty">${escapeHtml(state.currentSubject)}的错题本是空的。答错，或自评「部分对 / 不会」的题会自动加入。</p>`;
     return;
   }
 
-  wrongbookList.innerHTML = "";
-  const grouped = wrongQuestions.slice(0, 60).reduce((result, question) => {
-    const tier = getWrongTier(getWrongReviewLevel(getProgressFor(question.id)));
-    if (!result[tier.key]) result[tier.key] = { tier, questions: [] };
-    result[tier.key].questions.push(question);
-    return result;
-  }, {});
+  const tierOf = (question) => getWrongTier(getWrongReviewLevel(getProgressFor(question.id))).key;
+  const filters = [
+    { key: "all", label: "全部", test: () => true },
+    { key: "due", label: "待复习", test: (question) => isReviewDue(getProgressFor(question.id)) },
+    { key: "danger", label: "高危", test: (question) => tierOf(question) === "danger" },
+    { key: "focus", label: "重点", test: (question) => tierOf(question) === "focus" },
+    { key: "normal", label: "普通", test: (question) => tierOf(question) === "normal" },
+  ].map((filter) => ({ ...filter, count: wrongQuestions.filter(filter.test).length }));
+  const active = filters.find((filter) => filter.key === wrongFilter && filter.count) || filters[0];
+  wrongFilter = active.key;
+  const shown = wrongQuestions.filter(active.test);
+  const limit = 50;
 
-  ["danger", "focus", "normal"].forEach((key) => {
-    const group = grouped[key];
-    if (!group) return;
-    const groupEl = document.createElement("section");
-    groupEl.className = `wrong-tier wrong-tier-${key}`;
-    groupEl.innerHTML = `
-      <div class="wrong-tier-head">
-        <strong>${group.tier.title}</strong>
-        <span>${group.tier.label}</span>
-      </div>
-      <p class="muted">${group.tier.hint}</p>
-    `;
-    group.questions.forEach((question) => {
+  const rows = shown.slice(0, limit).map((question) => {
     const progress = getProgressFor(question.id);
-    const level = getWrongReviewLevel(progress);
-    const tier = getWrongTier(level);
-    const item = document.createElement("div");
-    item.className = `wrong-item wrong-item-${tier.key}`;
-    const promptText = stripHtml(question.promptHtml);
-    const preview = escapeHtml(clipText(promptText, 46) || question.label);
-    item.innerHTML = `
-      <p><strong>${question.label}</strong> · ${question.section || "未分类"}</p>
-      <p class="muted">${preview}${promptText.length > 46 ? "..." : ""}</p>
-      <p class="muted">${formatReviewDue(progress)} · 复习进度 ${Math.min(progress.reviewStep || 0, WRONG_CLEAR_STEP)}/${WRONG_CLEAR_STEP} · 累计错 ${progress.wrong} 次 / 部分对 ${progress.partial || 0} 次 / 对 ${progress.correct} 次</p>
-    `;
-    const actionBar = document.createElement("div");
-    actionBar.className = "toolbar-actions";
+    const tier = getWrongTier(getWrongReviewLevel(progress));
+    const step = Math.min(progress.reviewStep || 0, WRONG_CLEAR_STEP);
+    const dots = Array.from({ length: WRONG_CLEAR_STEP }, (_, index) => `<i class="${index < step ? "on" : ""}"></i>`).join("");
+    const id = escapeHtml(question.id);
+    return `
+      <li class="wrong-row tier-${tier.key}">
+        <span class="wrong-tag">${tier.short}</span>
+        <button class="wrong-main" data-redo="${id}" title="重做这道题">
+          <span class="wrong-title"><strong>${escapeHtml(question.label)}</strong><span>${escapeHtml(getQuestionTopic(question))}</span></span>
+          <span class="wrong-stem">${escapeHtml(clipText(stripHtml(question.promptHtml), 80) || question.label)}</span>
+        </button>
+        <span class="wrong-meta">
+          <span class="wrong-times">错 ${progress.wrong || 0}${progress.partial ? ` · 半对 ${progress.partial}` : ""}</span>
+          <span class="wrong-due${isReviewDue(progress) ? " is-due" : ""}">${formatReviewDue(progress)}</span>
+          <span class="stage-dots" title="再答对 ${WRONG_CLEAR_STEP - step} 轮移出错题本">${dots}</span>
+        </span>
+        <span class="wrong-actions">
+          <button class="ghost-btn" data-redo="${id}">重做</button>
+          <button class="icon-btn wrong-remove" data-remove="${id}" title="移出错题本" aria-label="移出错题本">×</button>
+        </span>
+      </li>`;
+  }).join("");
 
-    const jumpBtn = document.createElement("button");
-    jumpBtn.className = "ghost-btn";
-    jumpBtn.textContent = "立即重做";
-    jumpBtn.addEventListener("click", () => openNextQuestion(question));
-
-    const removeBtn = document.createElement("button");
-    removeBtn.className = "ghost-btn";
-    removeBtn.textContent = "移出错题本";
-    removeBtn.addEventListener("click", () => {
-      state.wrongBook = state.wrongBook.filter((id) => id !== question.id);
-      persist();
-      renderWrongbook();
-      renderQuestionLedger();
-      renderAnswerReview();
-    });
-
-    actionBar.appendChild(jumpBtn);
-    actionBar.appendChild(removeBtn);
-    item.appendChild(actionBar);
-    groupEl.appendChild(item);
-    });
-    wrongbookList.appendChild(groupEl);
-  });
+  wrongbookList.innerHTML = `
+    <div class="wrong-toolbar">
+      <div class="wrong-filters">
+        ${filters.filter((filter) => filter.key === "all" || filter.count).map((filter) => `
+          <button class="wrong-filter tier-${filter.key}${filter.key === active.key ? " active" : ""}" data-wrong-filter="${filter.key}">${filter.label}<span>${filter.count}</span></button>`).join("")}
+      </div>
+      <p class="muted">答对后隔 1 天、3 天再复习，连续 ${WRONG_CLEAR_STEP} 轮答对自动移出</p>
+    </div>
+    <ol class="wrong-list">${rows}</ol>
+    ${shown.length > limit ? `<p class="muted wrong-more">还有 ${shown.length - limit} 题没列出，点「只刷错题」逐题练习。</p>` : ""}`;
   typesetMath(wrongbookList);
+}
+
+function handleWrongbookClick(event) {
+  const filter = event.target.closest?.("[data-wrong-filter]");
+  if (filter) {
+    wrongFilter = filter.dataset.wrongFilter;
+    renderWrongbook();
+    return;
+  }
+  const redo = findQuestionById(event.target.closest?.("[data-redo]")?.dataset.redo);
+  if (redo) {
+    switchView("practice");
+    openNextQuestion(redo);
+    return;
+  }
+  const removeId = event.target.closest?.("[data-remove]")?.dataset.remove;
+  if (removeId) {
+    state.wrongBook = state.wrongBook.filter((id) => id !== removeId);
+    persist();
+    renderWrongbook();
+    renderStats();
+    renderQuestionLedger();
+    renderAnswerReview();
+  }
 }
 
 function formatReviewDue(progress) {
