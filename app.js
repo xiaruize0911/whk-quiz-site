@@ -1,7 +1,24 @@
 const questionBank = window.__QUESTION_BANK__ || { subjects: {}, allQuestions: [] };
 
 const STORAGE_KEY = "g3-midterm-drill-lab-v1";
-const API_KEY_STORAGE_KEY = "final-drill-lab-deepseek-api-key";
+const THEME_STORAGE_KEY = "g3-drill-theme";
+// Color schemes: an accent for light/sepia pages and a brighter one for dark pages (styles.css derives the rest).
+const PALETTES = [
+  { key: "indigo", name: "靛蓝", color: "#3b5bdb" },
+  { key: "teal", name: "青碧", color: "#0c8599" },
+  { key: "green", name: "松绿", color: "#2f7d5b" },
+  { key: "orange", name: "暖橙", color: "#d9480f" },
+  { key: "rose", name: "樱粉", color: "#c2255c" },
+  { key: "violet", name: "紫藤", color: "#7048e8" },
+  { key: "slate", name: "墨灰", color: "#3d4450" },
+];
+const MODES = [
+  { key: "system", name: "跟随系统" },
+  { key: "light", name: "浅色" },
+  { key: "dark", name: "深色" },
+  { key: "sepia", name: "护眼" },
+];
+const STAGE_LABELS = { mastered: "已背牢", scheduled: "复习中", due: "待复习", new: "未做" };
 const ANALYSIS_VERSION = "20261103h";
 const analysisBundles = {};
 let mathQueue = Promise.resolve();
@@ -20,14 +37,6 @@ const PLAIN_SCRIPTS = {
   "^": Object.fromEntries([..."0123456789+-"].map((ch, i) => [ch, "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻"[i]])),
   _: Object.fromEntries([..."0123456789+-"].map((ch, i) => [ch, "₀₁₂₃₄₅₆₇₈₉₊₋"[i]])),
 };
-const LOCAL_AI_EXPLAIN_ENDPOINT = window.location.protocol === "file:"
-  ? "http://127.0.0.1:8767/api/explain"
-  : "/api/explain";
-const LOCAL_AI_GRADE_ENDPOINT = window.location.protocol === "file:"
-  ? "http://127.0.0.1:8767/api/grade-subjective"
-  : "/api/grade-subjective";
-const DEEPSEEK_CHAT_ENDPOINT = "https://api.deepseek.com/chat/completions";
-const DEEPSEEK_MODEL = "deepseek-v4-pro";
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Every question is on a spaced schedule. Answering it right while due moves it one step:
 // step 0 = new or relearning, 1–3 = next review after 1/3/7 days, MASTERED_STEP = 已背牢.
@@ -52,19 +61,27 @@ const defaultProgress = {
   shuffledCursor: {},
   shuffledOrder: {},
   answerDrafts: {},
-  aiExplanations: {},
-  aiGrades: {},
+  dailyLog: {},
   activeView: "practice",
 };
 
 const state = loadProgress();
-state.aiGrades = state.aiGrades || {};
-state.aiExplanations = state.aiExplanations || {};
+delete state.aiGrades;
+delete state.aiExplanations;
 state.answerDrafts = state.answerDrafts || {};
 state.topicBySubject = state.topicBySubject || {};
+state.dailyLog = state.dailyLog || {};
+if (state.activeView !== "ledger" && state.activeView !== "answer-review") state.activeView = "practice";
 
 const subjectTabs = document.getElementById("subject-tabs");
-const statsGrid = document.getElementById("stats-grid");
+const progressPill = document.getElementById("progress-pill");
+const progressOverview = document.getElementById("progress-overview");
+const ledgerSubjectTitle = document.getElementById("ledger-subject-title");
+const questionStage = document.getElementById("question-stage");
+const settingsDialog = document.getElementById("settings-dialog");
+const settingsOpenBtn = document.getElementById("settings-open-btn");
+const paletteOptions = document.getElementById("palette-options");
+const modeOptions = document.getElementById("mode-options");
 const wrongbookList = document.getElementById("wrongbook-list");
 const questionMeta = document.getElementById("question-meta");
 const questionTitle = document.getElementById("question-title");
@@ -81,16 +98,10 @@ const answerContent = document.getElementById("answer-content");
 const prevBtn = document.getElementById("prev-btn");
 const nextBtn = document.getElementById("next-btn");
 const revealBtn = document.getElementById("reveal-btn");
-const aiExplainBtn = document.getElementById("ai-explain-btn");
-const aiGradeBtn = document.getElementById("ai-grade-btn");
 const markCorrectBtn = document.getElementById("mark-correct-btn");
 const markWrongBtn = document.getElementById("mark-wrong-btn");
 const clearWrongbookBtn = document.getElementById("clear-wrongbook");
 const resetSubjectStatsBtn = document.getElementById("reset-subject-stats");
-const deepseekApiKeyInput = document.getElementById("deepseek-api-key");
-const saveApiKeyBtn = document.getElementById("save-api-key");
-const clearApiKeyBtn = document.getElementById("clear-api-key");
-const apiKeyStatus = document.getElementById("api-key-status");
 const scopeButtons = Array.from(document.querySelectorAll(".scope-btn"));
 const orderButtons = Array.from(document.querySelectorAll(".order-btn"));
 const sidebar = document.getElementById("sidebar");
@@ -98,7 +109,7 @@ const sidebarBackdrop = document.getElementById("sidebar-backdrop");
 const sidebarOpenBtn = document.getElementById("sidebar-open-btn");
 const sidebarCloseBtn = document.getElementById("sidebar-close-btn");
 const mobileSubjectSelect = document.getElementById("mobile-subject-select");
-const questionToolbar = document.querySelector(".question-toolbar");
+const questionToolbar = document.querySelector(".app-bar");
 const topicSelect = document.getElementById("topic-select");
 const topicMastery = document.getElementById("topic-mastery");
 const markPartialBtn = document.getElementById("mark-partial-btn");
@@ -126,12 +137,6 @@ const answerReviewPlainText = document.getElementById("answer-review-plain-text"
 const imageZoom = document.getElementById("image-zoom");
 const imageZoomImg = document.getElementById("image-zoom-img");
 const imageZoomClose = document.getElementById("image-zoom-close");
-const aiExplanationPanel = document.getElementById("ai-explanation-panel");
-const aiExplanationContent = document.getElementById("ai-explanation-content");
-const aiExplanationMeta = document.getElementById("ai-explanation-meta");
-const aiGradingPanel = document.getElementById("ai-grading-panel");
-const aiGradingContent = document.getElementById("ai-grading-content");
-const aiGradingMeta = document.getElementById("ai-grading-meta");
 
 let currentQuestion = null;
 let answeredThisRound = false;
@@ -156,7 +161,7 @@ function init() {
   renderSubjects();
   renderTopicSelect();
   renderModeButtons();
-  renderApiKeySettings();
+  renderThemeOptions();
   bindEvents();
   trackToolbarHeight();
   renderActiveView();
@@ -170,10 +175,6 @@ function bindEvents() {
   prevBtn.addEventListener("click", () => goToPreviousQuestion());
   nextBtn.addEventListener("click", () => goToNextQuestion());
   revealBtn.addEventListener("click", () => revealAnswer(false));
-  aiExplainBtn.addEventListener("click", requestAiExplanation);
-  aiGradeBtn.addEventListener("click", requestSubjectiveGrading);
-  saveApiKeyBtn.addEventListener("click", saveApiKeySetting);
-  clearApiKeyBtn.addEventListener("click", clearApiKeySetting);
   markCorrectBtn.addEventListener("click", () => selfMark(true));
   markPartialBtn.addEventListener("click", () => selfMark("partial"));
   markWrongBtn.addEventListener("click", () => selfMark(false));
@@ -202,6 +203,19 @@ function bindEvents() {
       answer.classList.toggle("revealed");
     }
   });
+  progressPill.addEventListener("click", () => switchView("ledger"));
+  settingsOpenBtn.addEventListener("click", () => settingsDialog.showModal());
+  settingsDialog.addEventListener("click", (event) => {
+    if (event.target === settingsDialog) settingsDialog.close();
+  });
+  paletteOptions.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-palette]");
+    if (button) applyTheme({ palette: button.dataset.palette });
+  });
+  modeOptions.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-mode]");
+    if (button) applyTheme({ mode: button.dataset.mode });
+  });
   practiceViewBtn.addEventListener("click", () => switchView("practice"));
   ledgerViewBtn.addEventListener("click", () => switchView("ledger"));
   answerReviewViewBtn.addEventListener("click", () => switchView("answer-review"));
@@ -210,7 +224,7 @@ function bindEvents() {
   imageZoomClose.addEventListener("click", closeImageZoom);
   imageZoomImg.addEventListener("click", (event) => event.stopPropagation());
   document.addEventListener("keydown", handleGlobalKeydown);
-  [promptContent, answerContent, materialContent, aiGradingContent, aiExplanationContent, answerReviewList].forEach((container) => {
+  [promptContent, answerContent, materialContent, answerReviewList].forEach((container) => {
     container.addEventListener("click", handleRichContentClick);
   });
   subjectiveInput.addEventListener("input", () => {
@@ -219,7 +233,10 @@ function bindEvents() {
     persist();
   });
   clearWrongbookBtn.addEventListener("click", () => {
-    state.wrongBook = [];
+    const subjectIds = new Set(getCurrentSubjectQuestions().map((question) => question.id));
+    const count = state.wrongBook.filter((id) => subjectIds.has(id)).length;
+    if (!count || !window.confirm(`清空${state.currentSubject}错题本中的 ${count} 道题？做题记录和复习进度会保留。`)) return;
+    state.wrongBook = state.wrongBook.filter((id) => !subjectIds.has(id));
     persist();
     renderWrongbook();
     renderStats();
@@ -227,6 +244,8 @@ function bindEvents() {
     renderAnswerReview();
   });
   resetSubjectStatsBtn.addEventListener("click", () => {
+    if (!window.confirm(`清空${state.currentSubject}的全部做题记录、背题进度和错题？此操作无法撤销，建议先导出进度。`)) return;
+    settingsDialog.close();
     resetCurrentSubjectProgress();
   });
   scopeButtons.forEach((button) => {
@@ -267,6 +286,34 @@ function setSidebarOpen(open) {
   sidebarOpenBtn.setAttribute("aria-expanded", String(open));
 }
 
+function loadTheme() {
+  try {
+    return JSON.parse(localStorage.getItem(THEME_STORAGE_KEY) || "{}") || {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function applyTheme(change) {
+  const theme = { palette: "indigo", mode: "system", ...loadTheme(), ...change };
+  localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(theme));
+  document.documentElement.dataset.palette = theme.palette;
+  document.documentElement.dataset.mode = theme.mode;
+  renderThemeOptions();
+}
+
+function renderThemeOptions() {
+  const theme = { palette: "indigo", mode: "system", ...loadTheme() };
+  paletteOptions.innerHTML = PALETTES.map((palette) => `
+    <button class="palette-option${palette.key === theme.palette ? " active" : ""}" data-palette="${palette.key}" aria-pressed="${palette.key === theme.palette}">
+      <span class="palette-swatch" style="--swatch:${palette.color}"></span>${palette.name}
+    </button>`).join("");
+  modeOptions.innerHTML = MODES.map((mode) => `
+    <button class="mode-btn${mode.key === theme.mode ? " active" : ""}" data-mode="${mode.key}" aria-pressed="${mode.key === theme.mode}">${mode.name}</button>`).join("");
+  const themeColor = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+  document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => meta.setAttribute("content", themeColor));
+}
+
 function trackToolbarHeight() {
   const update = () => {
     document.documentElement.style.setProperty("--toolbar-h", `${questionToolbar.offsetHeight}px`);
@@ -292,10 +339,6 @@ function renderActiveView() {
   practiceViewBtn.classList.toggle("active", !isLedger && !isAnswerReview);
   ledgerViewBtn.classList.toggle("active", isLedger);
   answerReviewViewBtn.classList.toggle("active", isAnswerReview);
-  prevBtn.classList.toggle("hidden", isLedger || isAnswerReview);
-  nextBtn.classList.toggle("hidden", isLedger || isAnswerReview);
-  revealBtn.classList.toggle("hidden", isLedger || isAnswerReview);
-  aiExplainBtn.classList.toggle("hidden", isLedger || isAnswerReview);
   questionToolbar.querySelector(".question-actions").classList.toggle("hidden", isLedger || isAnswerReview);
   if (isLedger) {
     renderQuestionLedger();
@@ -392,32 +435,6 @@ function selectTopic(topic) {
   applyModeChange({});
 }
 
-function renderApiKeySettings() {
-  const saved = getSavedApiKey();
-  deepseekApiKeyInput.value = saved;
-  apiKeyStatus.textContent = saved ? "已在本地保存 API Key" : "未保存 API Key";
-}
-
-function saveApiKeySetting() {
-  const value = deepseekApiKeyInput.value.trim();
-  if (!value) {
-    clearApiKeySetting();
-    return;
-  }
-  localStorage.setItem(API_KEY_STORAGE_KEY, value);
-  renderApiKeySettings();
-}
-
-function clearApiKeySetting() {
-  localStorage.removeItem(API_KEY_STORAGE_KEY);
-  deepseekApiKeyInput.value = "";
-  renderApiKeySettings();
-}
-
-function getSavedApiKey() {
-  return localStorage.getItem(API_KEY_STORAGE_KEY) || "";
-}
-
 function getCurrentSubjectQuestions({ filtered = false } = {}) {
   const questions = questionBank.subjects[state.currentSubject]?.questions || [];
   return filtered ? filterQuestionsByMode(questions) : questions;
@@ -454,11 +471,6 @@ function resetCurrentSubjectProgress() {
       delete state.answerDrafts[id];
     }
   });
-  Object.keys(state.aiGrades || {}).forEach((id) => {
-    if (subjectQuestionIds.has(id)) {
-      delete state.aiGrades[id];
-    }
-  });
 
   delete state.sequenceCursor[subject];
   delete state.shuffledCursor[subject];
@@ -486,14 +498,9 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
     subjectiveActions.classList.add("hidden");
     feedbackBox.classList.add("hidden");
     answerContent.classList.add("hidden");
-    aiExplanationPanel.classList.add("hidden");
-    aiExplanationContent.innerHTML = "";
-    aiExplanationMeta.textContent = "";
-    aiGradingPanel.classList.add("hidden");
-    aiGradingContent.innerHTML = "";
-    aiGradingMeta.textContent = "";
     materialContent.classList.add("hidden");
     materialContent.innerHTML = "";
+    renderQuestionStage();
     renderNavButtons();
     return;
   }
@@ -541,8 +548,6 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
   promptContent.innerHTML = annotateClozeBlanks(materialSplit.promptHtml, currentQuestion) || "<p>题面缺失</p>";
   answerContent.innerHTML = buildAnswerPanel(currentQuestion);
   fillAnalysis(answerContent.querySelector(".analysis-slot"), currentQuestion);
-  renderAiExplanation(currentQuestion);
-  renderAiGrading(currentQuestion);
   enhanceRichContent(materialContent);
   enhanceRichContent(promptContent);
   enhanceRichContent(answerContent);
@@ -553,17 +558,16 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
   feedbackBox.className = "feedback-box hidden";
 
   renderKeyboardHelp();
+  renderQuestionStage();
   if (currentQuestion.kind === "choice") {
     renderChoiceQuestion(currentQuestion, choiceContent.optionsHtml);
     choiceWrapper.classList.remove("hidden");
     inputWrapper.classList.add("hidden");
     subjectiveActions.classList.add("hidden");
-    aiGradingPanel.classList.add("hidden");
   } else {
     choiceWrapper.classList.add("hidden");
     inputWrapper.classList.remove("hidden");
     subjectiveActions.classList.remove("hidden");
-    aiGradeBtn.disabled = false;
   }
 
   renderStats();
@@ -801,6 +805,9 @@ function describeReviewOutcome(outcome, questionId) {
 // "mastered", "early" (right, but not due yet, so the schedule stays) or "".
 function updateProgress(questionId, result) {
   const progress = getProgressFor(questionId);
+  const today = state.dailyLog[dayKey()] || (state.dailyLog[dayKey()] = { answered: 0, correct: 0 });
+  today.answered += 1;
+  if (result === true) today.correct += 1;
   const advancing = getAttempts(progress) === 0 || isReviewDue(progress);
   let outcome = "";
   if (result === true) {
@@ -836,6 +843,7 @@ function updateProgress(questionId, result) {
   }
   persist();
   renderStats();
+  renderQuestionStage();
   renderQuestionLedger();
   renderWrongbook();
   return outcome;
@@ -947,498 +955,6 @@ function renderAnalysisHtml(analysis) {
   return `<div class="analysis rich-block">${parts.join("")}</div>`;
 }
 
-function renderAiExplanation(question, { showCached = false } = {}) {
-  const cached = state.aiExplanations?.[question.id];
-  aiExplainBtn.disabled = false;
-  aiExplainBtn.textContent = cached ? "显示 AI 解析" : "AI 解析";
-  aiExplanationMeta.textContent = cached?.model ? cached.model : "";
-  if (!cached?.content) {
-    aiExplanationPanel.classList.add("hidden");
-    aiExplanationContent.innerHTML = "";
-    return;
-  }
-  aiExplanationContent.innerHTML = formatAiExplanation(cached.content);
-  enhanceRichContent(aiExplanationContent);
-  aiExplanationPanel.classList.toggle("hidden", !showCached);
-}
-
-function renderAiGrading(question) {
-  const cached = state.aiGrades?.[question.id];
-  aiGradeBtn.disabled = false;
-  aiGradeBtn.textContent = cached ? "显示 AI 批改" : "AI 批改";
-  aiGradingMeta.textContent = cached?.model
-    ? `${cached.model}${typeof cached.score === "number" ? ` · ${cached.score}/100` : ""}`
-    : "";
-  if (!cached?.content || question.kind === "choice") {
-    aiGradingPanel.classList.add("hidden");
-    aiGradingContent.innerHTML = "";
-    return;
-  }
-  aiGradingContent.innerHTML = formatAiExplanation(cached.content);
-  enhanceRichContent(aiGradingContent);
-  aiGradingPanel.classList.remove("hidden");
-}
-
-async function requestSubjectiveGrading() {
-  if (!currentQuestion || currentQuestion.kind === "choice") return;
-  const answer = subjectiveInput.value.trim();
-  if (!answer) {
-    feedbackBox.className = "feedback-box wrong";
-    feedbackBox.textContent = "请先在作答区输入答案，再使用 AI 批改。";
-    feedbackBox.classList.remove("hidden");
-    return;
-  }
-
-  const cached = state.aiGrades?.[currentQuestion.id];
-  if (cached?.content && cached.studentAnswer === answer) {
-    aiGradingPanel.classList.toggle("hidden");
-    return;
-  }
-
-  const apiKey = getSavedApiKey();
-  aiGradeBtn.disabled = true;
-  aiGradeBtn.textContent = "批改中...";
-  aiGradingPanel.classList.remove("hidden");
-  aiGradingMeta.textContent = "";
-  aiGradingContent.innerHTML = "<p class=\"muted\">正在批改主观题。</p>";
-
-  try {
-    const payload = await fetchSubjectiveGrading(buildAiQuestionPayload(currentQuestion), answer, apiKey);
-    const score = typeof payload.score === "number" ? payload.score : extractScoreFromGrading(payload.grading || "");
-    const isCorrect = typeof payload.isCorrect === "boolean" ? payload.isCorrect : inferCorrectFromScore(score);
-    state.aiGrades[currentQuestion.id] = {
-      content: payload.grading || "",
-      score,
-      isCorrect,
-      model: payload.model || "",
-      studentAnswer: answer,
-      createdAt: Date.now(),
-    };
-    persist();
-    renderAiGrading(currentQuestion);
-    applyAiGradingToProgress(isCorrect, score);
-  } catch (error) {
-    aiGradingMeta.textContent = "请求失败";
-    aiGradingContent.innerHTML = `<p class="muted">${escapeHtml(error.message || "AI 批改请求失败。")}</p>`;
-    aiGradeBtn.disabled = false;
-    aiGradeBtn.textContent = "AI 批改";
-  }
-}
-
-function applyAiGradingToProgress(isCorrect, score) {
-  const result = resultFromAiGrade(isCorrect, score);
-  if (!currentQuestion || answeredThisRound || result === null) return;
-  answeredThisRound = true;
-  const outcome = updateProgress(currentQuestion.id, result);
-  const tone = result === true ? "correct" : result === "partial" ? "partial" : "wrong";
-  feedbackBox.className = `feedback-box ${tone}`;
-  const scoreText = typeof score === "number" ? `（${score}/100）` : "";
-  feedbackBox.textContent = {
-    correct: `AI 判定基本正确${scoreText}${describeReviewOutcome(outcome, currentQuestion.id)}`,
-    partial: `AI 判定部分正确${scoreText}，已加入错题本`,
-    wrong: `AI 判定需要重做${scoreText}，已加入错题本`,
-  }[tone];
-  feedbackBox.classList.remove("hidden");
-  revealAnswer(true);
-}
-
-async function fetchSubjectiveGrading(questionPayload, studentAnswer, apiKey) {
-  if (shouldPreferLocalProxy()) {
-    try {
-      return await fetchLocalSubjectiveGrading(questionPayload, studentAnswer, apiKey);
-    } catch (error) {
-      if (!apiKey || !(error instanceof TypeError)) {
-        throw error;
-      }
-    }
-  }
-  return fetchDeepSeekGradeDirect(questionPayload, studentAnswer, apiKey);
-}
-
-async function fetchLocalSubjectiveGrading(questionPayload, studentAnswer, apiKey) {
-  const response = await fetch(LOCAL_AI_GRADE_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      apiKey,
-      question: questionPayload,
-      studentAnswer,
-    }),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if ([404, 405, 501].includes(response.status)) {
-    throw new TypeError("Local AI proxy is unavailable");
-  }
-  if (!response.ok) {
-    throw new Error(payload.error || "AI 批改请求失败。");
-  }
-  return payload;
-}
-
-async function fetchDeepSeekGradeDirect(questionPayload, studentAnswer, apiKey) {
-  if (!apiKey) {
-    throw new Error("请先在网页左侧 AI 设置中填写并保存 DeepSeek API Key。");
-  }
-  const response = await fetch(DEEPSEEK_CHAT_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
-      messages: buildDeepSeekGradingMessages(questionPayload, studentAnswer),
-      thinking: { type: "enabled" },
-      reasoning_effort: "high",
-      stream: false,
-      max_tokens: 2200,
-    }),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload?.error?.message || "DeepSeek 请求失败。");
-  }
-  const grading = payload?.choices?.[0]?.message?.content?.trim();
-  if (!grading) {
-    throw new Error("DeepSeek 未返回批改内容。");
-  }
-  return {
-    grading,
-    score: extractScoreFromGrading(grading),
-    isCorrect: inferCorrectFromScore(extractScoreFromGrading(grading)),
-    model: payload.model || DEEPSEEK_MODEL,
-    usage: payload.usage || null,
-  };
-}
-
-async function requestAiExplanation() {
-  if (!currentQuestion) return;
-  const cached = state.aiExplanations?.[currentQuestion.id];
-  if (cached?.content) {
-    if (aiExplanationPanel.classList.contains("hidden")) {
-      renderAiExplanation(currentQuestion, { showCached: true });
-    } else {
-      aiExplanationPanel.classList.add("hidden");
-    }
-    return;
-  }
-  const apiKey = getSavedApiKey();
-
-  aiExplainBtn.disabled = true;
-  aiExplainBtn.textContent = "生成中...";
-  aiExplanationPanel.classList.remove("hidden");
-  aiExplanationMeta.textContent = "";
-  aiExplanationContent.innerHTML = "<p class=\"muted\">正在生成详细解析。</p>";
-
-  try {
-    let streamedContent = "";
-    const payload = await fetchAiExplanation(buildAiQuestionPayload(currentQuestion), apiKey, (chunk) => {
-      streamedContent += chunk;
-      aiExplanationContent.innerHTML = formatAiExplanation(streamedContent);
-      enhanceRichContent(aiExplanationContent);
-    });
-    state.aiExplanations[currentQuestion.id] = {
-      content: payload.explanation || streamedContent,
-      model: payload.model || "",
-      createdAt: Date.now(),
-    };
-    persist();
-    renderAiExplanation(currentQuestion, { showCached: true });
-  } catch (error) {
-    aiExplanationMeta.textContent = "请求失败";
-    aiExplanationContent.innerHTML = `<p class="muted">${escapeHtml(error.message || "AI 解析请求失败。")}</p>`;
-    aiExplainBtn.disabled = false;
-    aiExplainBtn.textContent = "AI 解析";
-  }
-}
-
-async function fetchAiExplanation(questionPayload, apiKey, onChunk) {
-  if (shouldPreferLocalProxy()) {
-    try {
-      return await fetchLocalAiExplanation(questionPayload, apiKey, onChunk);
-    } catch (error) {
-      if (!apiKey || !(error instanceof TypeError)) {
-        throw error;
-      }
-    }
-  }
-  return fetchDeepSeekDirect(questionPayload, apiKey, onChunk);
-}
-
-async function fetchLocalAiExplanation(questionPayload, apiKey, onChunk) {
-  const response = await fetch(LOCAL_AI_EXPLAIN_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        apiKey,
-        question: questionPayload,
-      }),
-  });
-  if ([404, 405, 501].includes(response.status)) {
-    throw new TypeError("Local AI proxy is unavailable");
-  }
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    throw new Error(payload.error || "AI 解析请求失败。");
-  }
-  if (response.headers.get("Content-Type")?.includes("text/event-stream") && response.body) {
-    return readDeepSeekStream(response, onChunk);
-  }
-  const payload = await response.json().catch(() => ({}));
-  return payload;
-}
-
-async function fetchDeepSeekDirect(questionPayload, apiKey, onChunk) {
-  if (!apiKey) {
-    throw new Error("请先在网页左侧 AI 设置中填写并保存 DeepSeek API Key。");
-  }
-  const response = await fetch(DEEPSEEK_CHAT_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
-      messages: buildDeepSeekMessages(questionPayload),
-      thinking: { type: "enabled" },
-      reasoning_effort: "high",
-      stream: true,
-    }),
-  });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    throw new Error(payload?.error?.message || "DeepSeek 请求失败。");
-  }
-  return readDeepSeekStream(response, onChunk);
-}
-
-async function readDeepSeekStream(response, onChunk) {
-  if (!response.body) {
-    throw new Error("当前浏览器不支持流式输出。");
-  }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let explanation = "";
-  let model = DEEPSEEK_MODEL;
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split(/\r?\n/);
-    buffer = lines.pop() || "";
-    lines.forEach((line) => {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith("data:")) return;
-      const data = trimmed.slice(5).trim();
-      if (!data || data === "[DONE]") return;
-      let payload;
-      try {
-        payload = JSON.parse(data);
-      } catch {
-        return;
-      }
-      if (payload.model) model = payload.model;
-      const delta = payload.choices?.[0]?.delta?.content || "";
-      if (!delta) return;
-      explanation += delta;
-      onChunk?.(delta);
-    });
-  }
-
-  const tail = buffer.trim();
-  if (tail.startsWith("data:")) {
-    const data = tail.slice(5).trim();
-    if (data && data !== "[DONE]") {
-      try {
-        const payload = JSON.parse(data);
-        const delta = payload.choices?.[0]?.delta?.content || "";
-        if (payload.model) model = payload.model;
-        if (delta) {
-          explanation += delta;
-          onChunk?.(delta);
-        }
-      } catch {
-        // Ignore incomplete trailing SSE fragments.
-      }
-    }
-  }
-
-  if (!explanation) {
-    throw new Error("DeepSeek 未返回解析内容。");
-  }
-  return {
-    explanation: explanation.trim(),
-    model,
-    usage: null,
-  };
-}
-
-function shouldPreferLocalProxy() {
-  return window.location.protocol === "file:"
-    || window.location.hostname === "127.0.0.1"
-    || window.location.hostname === "localhost";
-}
-
-function buildAiQuestionPayload(question) {
-  const choiceContent = question.kind === "choice"
-    ? splitChoiceContent(question)
-    : {
-        promptHtml: `${question.promptHtml || ""}${question.optionsHtml || ""}`,
-        optionsHtml: "",
-      };
-  const materialSplit = splitMaterialFromPrompt(choiceContent.promptHtml || "", question);
-  const promptHtml = materialSplit.promptHtml || choiceContent.promptHtml || question.promptHtml || "";
-  const materialHtml = materialSplit.materialHtml || "";
-  const optionsHtml = choiceContent.optionsHtml || "";
-  const options = question.kind === "choice"
-    ? Object.entries(getQuestionOptions(question, choiceContent.optionsHtml)).map(([label, html]) => ({
-        label,
-        text: stripHtml(html),
-      }))
-    : [];
-
-  return {
-    id: question.id,
-    subject: question.subject,
-    section: question.section,
-    kind: question.kind,
-    source: question.source || "",
-    label: question.label || question.number || "",
-    materialText: stripHtml(materialHtml),
-    promptText: stripHtml(promptHtml),
-    promptHtml,
-    materialHtml,
-    optionsHtml,
-    imageRefs: extractQuestionImageRefs(`${materialHtml}${promptHtml}${optionsHtml}${question.answerHtml || ""}${question.explanationHtml || ""}`),
-    options,
-    answerText: stripHtml(question.answerHtml) || question.answerText || "",
-    answerHtml: question.answerHtml || "",
-    existingExplanationText: stripHtml(question.explanationHtml),
-    explanationHtml: question.explanationHtml || "",
-  };
-}
-
-function extractQuestionImageRefs(html) {
-  return [...String(html || "").matchAll(/<img\b[^>]*src="([^"]+)"[^>]*>/g)]
-    .map((match) => ({
-      src: match[1],
-      alt: (match[0].match(/\balt="([^"]*)"/) || [])[1] || "",
-    }))
-    .filter((item, index, items) => item.src && items.findIndex((other) => other.src === item.src) === index);
-}
-
-function buildDeepSeekMessages(question) {
-  return [
-    {
-      role: "system",
-      content: [
-        "你是一名高中老师，正在给高三学生讲期中题。",
-        "解释要直白、简单，默认学生只掌握高中课内知识。",
-        "不要使用大学、竞赛或超纲方法；如果原题只能用图判断，要直接说明需要看图。",
-        "少用术语，必须用术语时先用一句话解释它是什么意思。",
-        "每一步都说清楚为什么这么做，不要跳步。",
-        "必须按以下结构输出：",
-        "1. 先看什么",
-        "2. 一步一步做",
-        "3. 选项为什么对/错（选择题逐项分析；非选择题写“不适用”）",
-        "4. 容易错在哪里",
-        "5. 最后答案",
-        "不要编造题目中没有的信息。",
-        "数学式、物理式和化学式用 LaTeX 写：行内放在 $...$ 中，单独成行的放在 $$...$$ 中（化学式用 \\mathrm{...}）。",
-      ].join("\n"),
-    },
-    {
-      role: "user",
-      content: buildDeepSeekPrompt(question),
-    },
-  ];
-}
-
-function buildDeepSeekPrompt(question) {
-  const optionText = question.options.length
-    ? question.options.map((option) => `${option.label}. ${option.text || "见题图/原题"}`).join("\n")
-    : "无标准选项。";
-
-  return [
-    `题目 ID：${question.id}`,
-    `学科：${question.subject}`,
-    question.source ? `来源：${question.source}` : "",
-    question.label ? `题号：${question.label}` : "",
-    `题型：${question.kind === "choice" ? "选择题" : "主观题"}`,
-    `栏目：${question.section || "未标注"}`,
-    "",
-    question.materialText ? `材料：\n${question.materialText}\n` : "",
-    `题面：\n${question.promptText}`,
-    question.imageRefs?.length
-      ? `\n图片/图表引用：\n${question.imageRefs.map((item, index) => `${index + 1}. ${item.alt ? `${item.alt}：` : ""}${item.src}`).join("\n")}`
-      : "",
-    question.promptHtml ? `\n题目原始 HTML（用于保留公式、表格和图片位置）：\n${question.promptHtml}` : "",
-    question.materialHtml ? `\n材料原始 HTML：\n${question.materialHtml}` : "",
-    "",
-    `选项：\n${optionText}`,
-    question.optionsHtml ? `\n选项原始 HTML：\n${question.optionsHtml}` : "",
-    "",
-    `标准答案：${question.answerText || "未提供"}`,
-    question.answerHtml ? `\n标准答案 HTML：\n${question.answerHtml}` : "",
-    question.existingExplanationText ? `\n原题已有解析/答案补充：\n${question.existingExplanationText}` : "",
-    question.explanationHtml ? `\n解析 HTML：\n${question.explanationHtml}` : "",
-  ].filter(Boolean).join("\n");
-}
-
-function buildDeepSeekGradingMessages(question, studentAnswer) {
-  return [
-    {
-      role: "system",
-      content: [
-        "你是一名高中老师，正在批改高三期中题库中的主观题。",
-        "批改要直白、简单，基于高中课内知识。",
-        "必须严格对照标准答案，不要因为表达不同就轻易判错，但不能放过关键概念、数值、单位、方向、步骤错误。",
-        "如果题目包含多个小问，要逐小问批改。",
-        "如果学生答案为空、跑题或只写无关内容，直接给低分。",
-        "输出必须使用 Markdown，并按以下结构：",
-        "## 总评",
-        "- 得分：X/100",
-        "- 判定：正确/基本正确/部分正确/错误",
-        "## 逐点批改",
-        "逐条说明学生答案哪里对、哪里错、缺了什么。",
-        "## 按标准答案应这样写",
-        "给出适合背诵的标准作答。",
-        "## 下次注意",
-        "用一两句话指出最该改的点。",
-        "不要编造题目中没有的信息。",
-      ].join("\n"),
-    },
-    {
-      role: "user",
-      content: [
-        buildDeepSeekPrompt(question),
-        "",
-        `学生答案：\n${truncateText(studentAnswer, 8000)}`,
-      ].join("\n"),
-    },
-  ];
-}
-
-function extractScoreFromGrading(text) {
-  const match = String(text || "").match(/得分[：:\s]*([0-9]{1,3})(?:\s*\/\s*100)?/);
-  if (!match) return null;
-  const score = Number(match[1]);
-  return Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : null;
-}
-
-function inferCorrectFromScore(score) {
-  return typeof score === "number" ? score >= 80 : null;
-}
-
-function resultFromAiGrade(isCorrect, score) {
-  if (isCorrect === true) return true;
-  if (typeof score === "number" && score >= 40) return "partial";
-  return isCorrect === false || typeof score === "number" ? false : null;
-}
-
 function truncateText(value, maxLength) {
   const text = String(value || "");
   return text.length > maxLength ? `${clipText(text, maxLength)}...` : text;
@@ -1457,7 +973,7 @@ function clipText(text, maxLength) {
   return text.slice(0, end);
 }
 
-function formatAiExplanation(content) {
+function formatMarkdown(content) {
   // Display math may span lines, so lift it out before the line-by-line Markdown pass.
   const displayMath = [];
   const source = String(content || "")
@@ -1657,41 +1173,136 @@ function chooseSprintQuestion(questions) {
   return best;
 }
 
+// The progress pill in the top bar: where the current subject stands on the way to 已背牢.
 function renderStats() {
-  const subjectQuestions = getCurrentSubjectQuestions({ filtered: true });
-  const subjectStats = subjectQuestions.reduce(
-    (acc, question) => {
-      const progress = getProgressFor(question.id);
-      acc.seen += progress.seen;
-      acc.correct += progress.correct;
-      acc.wrong += progress.wrong;
-      acc.partial += progress.partial || 0;
-      if (isReviewDue(progress)) acc.due += 1;
-      if (isMastered(progress)) acc.mastered += 1;
-      if (!getAttempts(progress)) acc.fresh += 1;
-      if (getWrongReviewLevel(progress) >= 3) acc.highRisk += 1;
-      if (getWrongReviewLevel(progress) > 0) acc.review += 1;
-      return acc;
-    },
-    { seen: 0, correct: 0, wrong: 0, partial: 0, highRisk: 0, review: 0, due: 0, mastered: 0, fresh: 0 },
-  );
-  const accuracy = getAccuracy(subjectStats);
+  const counts = countStages(getCurrentSubjectQuestions());
+  const today = state.dailyLog[dayKey()]?.answered || 0;
+  progressPill.querySelector(".progress-pill-text").innerHTML = `
+    <strong>${escapeHtml(state.currentSubject)} 已背牢 ${counts.mastered}/${counts.total}</strong>
+    <span>${counts.due ? `待复习 ${counts.due} · ` : ""}今日 ${today} 题</span>`;
+  progressPill.querySelector(".stage-bar").outerHTML = stageBarHtml(counts);
+}
 
-  statsGrid.innerHTML = [
-    statCard("当前学科", state.currentSubject),
-    statCard("已背牢", `${subjectStats.mastered}/${subjectQuestions.length}`),
-    statCard("今日待复习", String(subjectStats.due)),
-    statCard("新题未做", String(subjectStats.fresh)),
-    statCard("正确率", `${accuracy}%`),
-    statCard("错题本", String(subjectStats.review)),
-    statCard("答错/部分对", `${subjectStats.wrong}/${subjectStats.partial}`),
-  ].join("");
+function countStages(questions) {
+  const counts = { mastered: 0, scheduled: 0, due: 0, new: 0, total: questions.length };
+  questions.forEach((question) => {
+    counts[getMemoryStage(getProgressFor(question.id))] += 1;
+  });
+  return counts;
+}
+
+function stageBarHtml(counts) {
+  const segments = ["mastered", "scheduled", "due"]
+    .filter((stage) => counts[stage])
+    .map((stage) => `<span class="stage-${stage}" style="width:${(counts[stage] / Math.max(1, counts.total)) * 100}%" title="${STAGE_LABELS[stage]} ${counts[stage]}"></span>`)
+    .join("");
+  return `<span class="stage-bar">${segments}</span>`;
+}
+
+function dayKey(time = Date.now()) {
+  const date = new Date(time);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function getStudyStreak() {
+  let streak = 0;
+  let time = Date.now();
+  if (!state.dailyLog[dayKey(time)]?.answered) time -= DAY_MS;
+  while (state.dailyLog[dayKey(time)]?.answered) {
+    streak += 1;
+    time -= DAY_MS;
+  }
+  return streak;
+}
+
+// Per-question schedule in the card header: four steps from 新题 to 已背牢.
+function renderQuestionStage() {
+  if (!currentQuestion) {
+    questionStage.innerHTML = "";
+    return;
+  }
+  const progress = getProgressFor(currentQuestion.id);
+  const stage = getMemoryStage(progress);
+  const step = Math.min(progress.reviewStep || 0, MASTERED_STEP);
+  const dots = Array.from({ length: MASTERED_STEP }, (_, index) => `<i class="${index < step ? "on" : ""}"></i>`).join("");
+  questionStage.className = `question-stage is-${stage}`;
+  questionStage.title = "答对 → 1 天后复习 → 3 天后 → 7 天后 → 已背牢；答错从头开始";
+  questionStage.innerHTML = `<span class="stage-dots">${dots}</span>${escapeHtml(describeMemoryStage(progress))}`;
+}
+
+function renderProgressOverview() {
+  const subjects = Object.keys(questionBank.subjects);
+  const all = countStages(questionBank.allQuestions);
+  const share = all.total ? Math.round((all.mastered / all.total) * 100) : 0;
+  const touched = all.total - all.new;
+  const today = state.dailyLog[dayKey()] || { answered: 0, correct: 0 };
+  const todayAccuracy = today.answered ? Math.round((today.correct / today.answered) * 100) : 0;
+  const days = Array.from({ length: 14 }, (_, index) => {
+    const time = Date.now() - (13 - index) * DAY_MS;
+    return { time, answered: state.dailyLog[dayKey(time)]?.answered || 0 };
+  });
+  const peak = Math.max(10, ...days.map((day) => day.answered));
+  const ring = 2 * Math.PI * 42;
+  progressOverview.innerHTML = `
+    <div class="overview-grid">
+      <div class="overview-card overview-total">
+        <svg class="progress-ring" viewBox="0 0 100 100" aria-hidden="true">
+          <circle cx="50" cy="50" r="42" class="ring-track"></circle>
+          <circle cx="50" cy="50" r="42" class="ring-touched" stroke-dasharray="${(touched / Math.max(1, all.total)) * ring} ${ring}"></circle>
+          <circle cx="50" cy="50" r="42" class="ring-value" stroke-dasharray="${(all.mastered / Math.max(1, all.total)) * ring} ${ring}"></circle>
+        </svg>
+        <div class="overview-total-text">
+          <p class="eyebrow">全部题库</p>
+          <strong>${share}<small>%</small></strong>
+          <span>已背牢 ${all.mastered} / ${all.total} 题</span>
+          <span class="muted">已开始 ${touched} · 待复习 ${all.due} · 未做 ${all.new}</span>
+        </div>
+      </div>
+      <div class="overview-card overview-today">
+        <div class="today-stats">
+          <div><strong>${today.answered}</strong><span>今日做题</span></div>
+          <div><strong>${today.answered ? `${todayAccuracy}%` : "–"}</strong><span>今日正确率</span></div>
+          <div><strong>${all.due}</strong><span>待复习</span></div>
+          <div><strong>${getStudyStreak()}</strong><span>连续天数</span></div>
+        </div>
+        <div class="day-bars" aria-label="最近 14 天做题数">
+          ${days.map((day, index) => `
+            <span class="day-bar${index === days.length - 1 ? " today" : ""}" title="${dayKey(day.time).slice(5)}：${day.answered} 题">
+              <i style="height:${day.answered ? Math.max(6, (day.answered / peak) * 100) : 0}%"></i>
+              <em>${index === days.length - 1 ? "今" : new Date(day.time).getDate()}</em>
+            </span>`).join("")}
+        </div>
+      </div>
+    </div>
+    <div class="subject-progress">
+      ${subjects.map((subject) => {
+        const counts = countStages(questionBank.subjects[subject].questions);
+        return `
+          <button class="subject-progress-row${subject === state.currentSubject ? " active" : ""}" data-subject="${escapeHtml(subject)}">
+            <strong>${escapeHtml(subject)}</strong>
+            ${stageBarHtml(counts)}
+            <span class="subject-progress-count">${counts.mastered}<small>/${counts.total}</small></span>
+            <span class="subject-progress-meta">复习中 ${counts.scheduled} · 待复习 ${counts.due} · 未做 ${counts.new}</span>
+          </button>`;
+      }).join("")}
+    </div>
+    <div class="stage-legend">
+      ${["mastered", "scheduled", "due", "new"].map((stage) => `<span><i class="stage-${stage}"></i>${STAGE_LABELS[stage]}</span>`).join("")}
+      <span class="muted">每题答对后 1 / 3 / 7 天各复习一次，全部通过即已背牢</span>
+    </div>`;
+  progressOverview.querySelectorAll("[data-subject]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (button.dataset.subject !== state.currentSubject) selectSubject(button.dataset.subject);
+    });
+  });
 }
 
 function renderQuestionLedger() {
   if (!questionLedger || !ledgerSummary || state.activeView !== "ledger") return;
+  renderProgressOverview();
   renderTopicMastery();
   const topic = getCurrentTopic();
+  ledgerSubjectTitle.textContent = `${state.currentSubject}${topic ? ` · ${topic}` : ""}`;
   const questions = getCurrentSubjectQuestions().filter((question) => !topic || getQuestionTopic(question) === topic);
   const answered = questions.filter((question) => getAttempts(getProgressFor(question.id)) > 0).length;
   const wrongCount = questions.filter((question) => state.wrongBook.includes(question.id)).length;
@@ -1734,7 +1345,7 @@ function renderQuestionLedger() {
       </div>
     `;
     const jumpBtn = document.createElement("button");
-    jumpBtn.className = "primary-btn";
+    jumpBtn.className = "ghost-btn";
     jumpBtn.textContent = "跳到此题";
     jumpBtn.addEventListener("click", () => {
       switchView("practice");
@@ -1986,7 +1597,7 @@ function getAnswerReviewItem(question) {
 }
 
 function renderMarkdownBlock(value) {
-  return formatAiExplanation(String(value || "").trim());
+  return formatMarkdown(String(value || "").trim());
 }
 
 function getChoiceAnswerText(question, choiceAnswer) {
@@ -2273,9 +1884,6 @@ function scrollQuestionIntoView() {
   }
 }
 
-function statCard(label, value) {
-  return `<div class="stat-card"><strong>${value}</strong><span>${label}</span></div>`;
-}
 
 function getWrongReviewLevel(progress) {
   if (!progress) return 0;
