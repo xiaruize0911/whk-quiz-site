@@ -562,7 +562,9 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
     ? `<p class="material-label">材料</p><div class="rich-block">${materialHtml}</div>`
     : "";
   materialContent.classList.toggle("hidden", !materialSplit.materialHtml);
-  practiceView.classList.toggle("has-material", Boolean(materialSplit.materialHtml));
+  // Passages sit beside choice questions on wide screens; subjective questions keep the
+  // material on top so the long answer and analysis don't pile up in one column.
+  practiceView.classList.toggle("material-beside", Boolean(materialSplit.materialHtml) && currentQuestion.kind === "choice");
   materialContent.scrollTop = 0;
   scrollQuestionIntoView();
   promptContent.innerHTML = annotateClozeBlanks(materialSplit.promptHtml, currentQuestion) || "<p>题面缺失</p>";

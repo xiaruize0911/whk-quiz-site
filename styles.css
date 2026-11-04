@@ -2713,26 +2713,26 @@ mjx-container[jax="CHTML"][display="true"] {
   margin-top: 4px;
 }
 
-/* ===== Wide screens: passage beside the question ===== */
+/* ===== Wide screens: passage beside a choice question ===== */
 @media (min-width: 1200px) {
-  .question-card.has-material {
+  .question-card.material-beside {
     display: grid;
     grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
     gap: 28px;
     align-items: start;
   }
 
-  .question-card.has-material .question-head {
+  .question-card.material-beside .question-head {
     grid-column: 1 / -1;
     margin-bottom: 0;
   }
 
-  .question-card.has-material .question-main {
+  .question-card.material-beside .question-main {
     position: sticky;
     top: calc(var(--toolbar-h, 80px) + 12px);
   }
 
-  .question-card.has-material .material-box {
+  .question-card.material-beside .material-box {
     position: sticky;
     top: calc(var(--toolbar-h, 80px) + 12px);
     max-height: calc(100vh - var(--toolbar-h, 80px) - 40px);
