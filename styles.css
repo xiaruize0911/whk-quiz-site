@@ -612,6 +612,20 @@ textarea {
   box-shadow: var(--shadow-sm), 0 0 0 1px var(--line);
 }
 
+.view-count {
+  min-width: 18px;
+  height: 18px;
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
 .progress-pill {
   flex: 0 1 300px;
   min-width: 200px;
@@ -2459,9 +2473,9 @@ mjx-container[jax="CHTML"][display="true"] {
   border-radius: 3px;
 }
 
-/* Wrong book (进度 page) */
-.wrongbook-section {
-  margin-bottom: 28px;
+/* Wrong book page */
+.wrongbook-panel .ledger-head {
+  align-items: center;
 }
 
 .wrongbook-head-actions {
@@ -2866,6 +2880,12 @@ mjx-container[jax="CHTML"][display="true"] {
   .view-switch .view-btn {
     flex: 1;
     min-width: 0;
+    padding: 0 4px;
+  }
+
+  .view-count {
+    margin-left: 3px;
+    padding: 0 4px;
   }
 
   .progress-pill {

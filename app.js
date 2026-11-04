@@ -73,7 +73,7 @@ delete state.aiExplanations;
 state.answerDrafts = state.answerDrafts || {};
 state.topicBySubject = state.topicBySubject || {};
 state.dailyLog = state.dailyLog || {};
-if (state.activeView !== "ledger" && state.activeView !== "answer-review") state.activeView = "practice";
+if (!["ledger", "wrongbook", "answer-review"].includes(state.activeView)) state.activeView = "practice";
 
 const subjectTabs = document.getElementById("subject-tabs");
 const progressPill = document.getElementById("progress-pill");
@@ -128,6 +128,10 @@ const practiceView = document.getElementById("practice-view");
 const ledgerView = document.getElementById("ledger-view");
 const practiceViewBtn = document.getElementById("practice-view-btn");
 const ledgerViewBtn = document.getElementById("ledger-view-btn");
+const wrongbookView = document.getElementById("wrongbook-view");
+const wrongbookViewBtn = document.getElementById("wrongbook-view-btn");
+const wrongbookCount = document.getElementById("wrongbook-count");
+const wrongbookSubjectTitle = document.getElementById("wrongbook-subject-title");
 const answerReviewView = document.getElementById("answer-review-view");
 const answerReviewViewBtn = document.getElementById("answer-review-view-btn");
 const ledgerSummary = document.getElementById("ledger-summary");
@@ -221,6 +225,7 @@ function bindEvents() {
   });
   practiceViewBtn.addEventListener("click", () => switchView("practice"));
   ledgerViewBtn.addEventListener("click", () => switchView("ledger"));
+  wrongbookViewBtn.addEventListener("click", () => switchView("wrongbook"));
   answerReviewViewBtn.addEventListener("click", () => switchView("answer-review"));
   copyAnswerReviewBtn.addEventListener("click", copyAnswerReviewText);
   imageZoom.addEventListener("click", closeImageZoom);
@@ -339,17 +344,24 @@ function switchView(view) {
 }
 
 function renderActiveView() {
+  const isPractice = state.activeView === "practice";
   const isLedger = state.activeView === "ledger";
+  const isWrongbook = state.activeView === "wrongbook";
   const isAnswerReview = state.activeView === "answer-review";
-  practiceView.classList.toggle("hidden", isLedger || isAnswerReview);
+  practiceView.classList.toggle("hidden", !isPractice);
   ledgerView.classList.toggle("hidden", !isLedger);
+  wrongbookView.classList.toggle("hidden", !isWrongbook);
   answerReviewView.classList.toggle("hidden", !isAnswerReview);
-  practiceViewBtn.classList.toggle("active", !isLedger && !isAnswerReview);
+  practiceViewBtn.classList.toggle("active", isPractice);
   ledgerViewBtn.classList.toggle("active", isLedger);
+  wrongbookViewBtn.classList.toggle("active", isWrongbook);
   answerReviewViewBtn.classList.toggle("active", isAnswerReview);
-  questionToolbar.querySelector(".question-actions").classList.toggle("hidden", isLedger || isAnswerReview);
+  questionToolbar.querySelector(".question-actions").classList.toggle("hidden", !isPractice);
   if (isLedger) {
     renderQuestionLedger();
+  }
+  if (isWrongbook) {
+    renderWrongbook();
   }
   if (isAnswerReview) {
     renderAnswerReview();
@@ -1954,6 +1966,9 @@ function renderWrongbook() {
     });
   drillWrongBtn.disabled = !wrongQuestions.length;
   clearWrongbookBtn.disabled = !wrongQuestions.length;
+  wrongbookSubjectTitle.textContent = `${state.currentSubject}错题本`;
+  wrongbookCount.textContent = wrongQuestions.length;
+  wrongbookCount.classList.toggle("hidden", !wrongQuestions.length);
 
   if (!wrongQuestions.length) {
     wrongbookList.innerHTML = `<p class="wrong-empty">${escapeHtml(state.currentSubject)}的错题本是空的。答错，或自评「部分对 / 不会」的题会自动加入。</p>`;

@@ -19,7 +19,7 @@
         if (theme.mode) document.documentElement.dataset.mode = theme.mode;
       } catch (error) {}
     </script>
-    <link rel="stylesheet" href="./styles.css?v=20261104c" />
+    <link rel="stylesheet" href="./styles.css?v=20261104d" />
     <script>
       window.MathJax = {
         tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]] },
@@ -87,6 +87,7 @@
           <nav class="view-switch" aria-label="页面切换">
             <button id="practice-view-btn" class="view-btn active">刷题</button>
             <button id="ledger-view-btn" class="view-btn">进度</button>
+            <button id="wrongbook-view-btn" class="view-btn">错题本<span id="wrongbook-count" class="view-count hidden"></span></button>
             <button id="answer-review-view-btn" class="view-btn">背答案</button>
           </nav>
           <button id="progress-pill" class="progress-pill" title="查看进度">
@@ -150,20 +151,24 @@
             <div id="ledger-summary" class="ledger-summary"></div>
           </div>
           <div id="topic-mastery" class="topic-mastery"></div>
-          <section class="wrongbook-section">
-            <div class="mastery-head">
-              <h3>错题本</h3>
-              <div class="wrongbook-head-actions">
-                <button id="drill-wrong-btn" class="primary-btn">只刷错题</button>
-                <button id="clear-wrongbook" class="ghost-btn">清空</button>
-              </div>
-            </div>
-            <div id="wrongbook-list" class="wrongbook-list"></div>
-          </section>
           <div class="mastery-head ledger-list-head">
             <h3>逐题记录</h3>
           </div>
           <div id="question-ledger" class="question-ledger"></div>
+        </section>
+
+        <section id="wrongbook-view" class="ledger-panel wrongbook-panel hidden">
+          <div class="ledger-head">
+            <div>
+              <p class="eyebrow">当前学科</p>
+              <h2 id="wrongbook-subject-title">错题本</h2>
+            </div>
+            <div class="wrongbook-head-actions">
+              <button id="drill-wrong-btn" class="primary-btn">只刷错题</button>
+              <button id="clear-wrongbook" class="ghost-btn">清空</button>
+            </div>
+          </div>
+          <div id="wrongbook-list" class="wrongbook-list"></div>
         </section>
 
         <section id="answer-review-view" class="answer-review-panel hidden">
@@ -224,6 +229,6 @@
     </div>
 
     <script src="./data/questions.js?v=20261103j"></script>
-    <script src="./app.js?v=20261104c"></script>
+    <script src="./app.js?v=20261104d"></script>
   </body>
 </html>
