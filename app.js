@@ -19,7 +19,7 @@ const MODES = [
   { key: "sepia", name: "护眼" },
 ];
 const STAGE_LABELS = { mastered: "已背牢", scheduled: "复习中", due: "待复习", new: "未做" };
-const ANALYSIS_VERSION = "20261103h";
+const ANALYSIS_VERSION = "20261107a";
 const analysisBundles = {};
 let mathQueue = Promise.resolve();
 // Which slice of the wrong book the 进度 page lists: all, due, or a tier key.

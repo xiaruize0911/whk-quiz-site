@@ -22,7 +22,23 @@
     <link rel="stylesheet" href="./styles.css?v=20261104g" />
     <script>
       window.MathJax = {
-        tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]] },
+        loader: { load: ["[tex]/mathtools"] },
+        tex: {
+          inlineMath: [["\\(", "\\)"]],
+          displayMath: [["\\[", "\\]"]],
+          packages: { "[+]": ["mathtools"] },
+          // Structural and electron formulas in the chemistry analyses.
+          macros: {
+            chemud: ["\\mathord{\\overset{\\displaystyle #1\\atop\\displaystyle|}{\\underset{\\displaystyle|\\atop\\displaystyle #3}{#2}}}", 3],
+            chemup: ["\\mathord{\\overset{\\displaystyle\\mathclap{#1}\\atop\\displaystyle|}{#2}}", 2],
+            chemdown: ["\\mathord{\\underset{\\displaystyle|\\atop\\displaystyle\\mathclap{#2}}{#1}}", 2],
+            chemdup: ["\\mathord{\\overset{\\displaystyle #1\\atop\\displaystyle\\Vert}{#2}}", 2],
+            chemleft: ["\\mathord{\\begin{matrix}\\mathrm{#1}\\diagdown\\\\[-4pt]\\mathrm{#2}\\diagup\\end{matrix}}\\!", 2],
+            chemright: ["\\!\\mathord{\\begin{matrix}\\diagup\\mathrm{#1}\\\\[-4pt]\\diagdown\\mathrm{#2}\\end{matrix}}", 2],
+            lonepair: ["\\mathord{\\overset{..}{\\underset{..}{#1}}}", 1],
+            pairud: ["\\mathord{\\overset{\\displaystyle #1\\atop\\displaystyle\\cdot\\!\\cdot}{\\underset{\\displaystyle\\cdot\\!\\cdot\\atop\\displaystyle #3}{#2}}}", 3],
+          },
+        },
         options: { enableMenu: false },
         chtml: { matchFontHeight: false },
         startup: {
@@ -229,7 +245,7 @@
       <img id="image-zoom-img" alt="" />
     </div>
 
-    <script src="./data/questions.js?v=20261103j"></script>
+    <script src="./data/questions.js?v=20261107a"></script>
     <script src="./app.js?v=20261104g"></script>
   </body>
 </html>
