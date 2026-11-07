@@ -19,7 +19,7 @@ const MODES = [
   { key: "sepia", name: "护眼" },
 ];
 const STAGE_LABELS = { mastered: "已背牢", scheduled: "复习中", due: "待复习", new: "未做" };
-const ANALYSIS_VERSION = "20261107a";
+const ANALYSIS_VERSION = "20261107b";
 const analysisBundles = {};
 let mathQueue = Promise.resolve();
 // Which slice of the wrong book the 进度 page lists: all, due, or a tier key.
@@ -1784,10 +1784,17 @@ function latexToPlainText(text) {
     let out = tex.replace(/\^\{\\circ\}/g, "°");
     for (let i = 0; i < 4; i += 1) {
       out = out
+        .replace(/\{\}/g, "")
         .replace(/\\d?frac\{([^{}]*)\}\{([^{}]*)\}/g, (__, a, b) => `${wrapPlain(a)}/${wrapPlain(b)}`)
         .replace(/\\sqrt\[3\]\{([^{}]*)\}/g, (__, a) => `∛${wrapPlain(a)}`)
         .replace(/\\sqrt\{([^{}]*)\}/g, (__, a) => `√${wrapPlain(a)}`)
         .replace(/\\(?:mathrm|text)\{([^{}]*)\}/g, "$1")
+        // Reaction conditions over a long equals sign or arrow: ＝(点燃)＝, →(光照).
+        .replace(/\\(xlongequal|xrightarrow)(?:\[([^\]]*)\])?\{([^{}]*)\}/g, (__, command, below, above) => {
+          const condition = [above, below].map(plainCondition).filter(Boolean).join("，");
+          const sign = command === "xlongequal" ? "＝" : "→";
+          return condition ? `${sign}(${condition})${command === "xlongequal" ? sign : ""}` : sign;
+        })
         .replace(/([\^_])\{([^{}]*)\}/g, (__, mark, body) =>
           /^[\d+-]+$/.test(body) ? [...body].map((ch) => PLAIN_SCRIPTS[mark][ch]).join("") : `${mark}(${body})`);
     }
@@ -1797,7 +1804,13 @@ function latexToPlainText(text) {
       .replace(/\{\}/g, "")
       .replace(/\s+/g, " ")
       .trim();
-  });
+  }).replace(/​/g, ""); // the break points between the pieces of a long equation
+}
+
+function plainCondition(tex) {
+  return String(tex || "")
+    .replace(/\\([A-Za-z]+) ?/g, (match, name) => PLAIN_COMMANDS[name] ?? "")
+    .trim();
 }
 
 function wrapPlain(value) {
