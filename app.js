@@ -493,8 +493,12 @@ function resetCurrentSubjectProgress() {
   });
 
   delete state.sequenceCursor[subject];
-  delete state.shuffledCursor[subject];
-  delete state.shuffledOrder[subject];
+  Object.keys(state.shuffledOrder).forEach((key) => {
+    if (key === subject || key.startsWith(`${subject}|`)) {
+      delete state.shuffledOrder[key];
+      delete state.shuffledCursor[key];
+    }
+  });
   state.currentQuestionId = null;
   persist();
   openNextQuestion();
@@ -546,7 +550,8 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
   }
   persist();
 
-  questionMeta.textContent = `${currentQuestion.subject} · ${currentQuestion.source}`;
+  questionMeta.textContent = `${currentQuestion.subject} · ${currentQuestion.source}`
+    + (isOnlyQuestionInScope() ? " · 当前范围只有这一题" : "");
   const groupText = currentQuestion.group ? `${currentQuestion.group} · ` : "";
   questionTitle.textContent = `${groupText}${currentQuestion.label} ${currentQuestion.kind === "choice" ? "选择题" : "主观题"}`;
   questionSection.textContent = currentQuestion.section || "未标注题型";
@@ -1877,7 +1882,13 @@ function canGoNext() {
   if (state.historyCursor < state.questionHistory.length - 1) {
     return true;
   }
-  return getCurrentSubjectQuestions({ filtered: true }).length > 0;
+  return getCurrentSubjectQuestions({ filtered: true }).length > 0 && !isOnlyQuestionInScope();
+}
+
+// 下一题 would only reopen the question on screen (e.g. one wrong question left in this 考点).
+function isOnlyQuestionInScope() {
+  const questions = getCurrentSubjectQuestions({ filtered: true });
+  return questions.length === 1 && questions[0].id === currentQuestion?.id;
 }
 
 function goToPreviousQuestion() {
@@ -2120,33 +2131,44 @@ function normalizeAnswer(answerText) {
   return (answerText || "").replace(/[^A-Z]/gi, "").toUpperCase();
 }
 
-// The shuffled order covers the whole subject; the current scope only decides
-// which entries are skipped, so changing scope doesn't restart the cycle.
-function chooseShuffledCycleQuestion(subjectQuestions) {
-  const subject = state.currentSubject;
-  const allIds = getCurrentSubjectQuestions().map((question) => question.id);
-  const questionMap = new Map(subjectQuestions.map((question) => [question.id, question]));
-  let order = (state.shuffledOrder[subject] || []).filter((id) => allIds.includes(id));
-  let cursor = state.shuffledCursor[subject] || 0;
-  if (order.length !== allIds.length) {
-    order = shuffleArray(allIds);
+// 乱序不重复: each subject + scope + 考点 keeps its own shuffled round, so drilling the wrong
+// book or one 考点 doesn't use up (or restart) the round over the whole subject.
+function chooseShuffledCycleQuestion(questions) {
+  const key = getShuffleKey();
+  const ids = questions.map((question) => question.id);
+  let { order, cursor } = syncShuffleRound(key, ids);
+  if (cursor >= order.length) {
+    order = shuffleArray(ids);
     cursor = 0;
+    // A new round never starts with the question that ended the last one.
+    if (order.length > 1 && order[0] === state.currentQuestionId) {
+      const swap = 1 + Math.floor(Math.random() * (order.length - 1));
+      [order[0], order[swap]] = [order[swap], order[0]];
+    }
   }
+  state.shuffledOrder[key] = order;
+  state.shuffledCursor[key] = cursor + 1;
+  return questions.find((question) => question.id === order[cursor]) || questions[0] || null;
+}
 
-  for (let step = 0; step < order.length * 2; step += 1) {
-    if (cursor >= order.length) {
-      order = shuffleArray(allIds);
-      cursor = 0;
-    }
-    const question = questionMap.get(order[cursor]);
-    cursor += 1;
-    if (question) {
-      state.shuffledOrder[subject] = order;
-      state.shuffledCursor[subject] = cursor;
-      return question;
-    }
-  }
-  return subjectQuestions[0] || null;
+// The whole subject keeps the key it had before rounds were split by scope.
+function getShuffleKey() {
+  const topic = getCurrentTopic();
+  return state.scope === "all" && !topic ? state.currentSubject : `${state.currentSubject}|${state.scope}|${topic}`;
+}
+
+// Fit a saved round to the questions now in scope (the wrong book and due list change as you
+// answer): questions already done this round stay done, new ones join the rest of the round.
+function syncShuffleRound(key, ids) {
+  const inScope = new Set(ids);
+  const saved = state.shuffledOrder[key] || [];
+  const savedCursor = state.shuffledCursor[key] || 0;
+  const done = saved.slice(0, savedCursor).filter((id) => inScope.has(id));
+  const known = new Set(saved);
+  const added = ids.filter((id) => !known.has(id));
+  let rest = saved.slice(savedCursor).filter((id) => inScope.has(id));
+  if (added.length) rest = shuffleArray([...rest, ...added]);
+  return { order: [...done, ...rest], cursor: done.length };
 }
 
 function filterQuestionsByMode(allQuestions) {
