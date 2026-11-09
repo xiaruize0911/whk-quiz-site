@@ -19,7 +19,7 @@ const MODES = [
   { key: "sepia", name: "护眼" },
 ];
 const STAGE_LABELS = { mastered: "已背牢", scheduled: "复习中", due: "待复习", new: "未做" };
-const ANALYSIS_VERSION = "20261107b";
+const ANALYSIS_VERSION = "20261109a";
 const analysisBundles = {};
 let mathQueue = Promise.resolve();
 // Which slice of the wrong book the 进度 page lists: all, due, or a tier key.
@@ -1781,7 +1781,11 @@ function buildAnswerReviewText() {
 // Formulas in the copied answer list: \(x^{2}\le 1\) → x²≤1 (tables PLAIN_COMMANDS/PLAIN_SCRIPTS at the top).
 function latexToPlainText(text) {
   return String(text || "").replace(/\\\(([\s\S]*?)\\\)/g, (_, tex) => {
-    let out = tex.replace(/\^\{\\circ\}/g, "°");
+    let out = tex
+      .replace(/\^\{\\circ\}/g, "°")
+      // A piecewise function or system back in its source form: {2ˣ，x≤1；…}.
+      .replace(/\\begin\{cases\}([\s\S]*?)\\end\{cases\}/g, (__, body) =>
+        `{${body.split("\\\\").map((row) => row.replace(/,?&/, "，")).join("；")}}`);
     for (let i = 0; i < 4; i += 1) {
       out = out
         .replace(/\{\}/g, "")
