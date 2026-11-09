@@ -125,6 +125,9 @@ const topicNoneBtn = document.getElementById("topic-none-btn");
 const topicApplyBtn = document.getElementById("topic-apply-btn");
 const questionTopic = document.getElementById("question-topic");
 const rangeBtn = document.getElementById("range-btn");
+const shuffleRound = document.getElementById("shuffle-round");
+const shuffleRoundText = document.getElementById("shuffle-round-text");
+const restartRoundBtn = document.getElementById("restart-round-btn");
 const topicMastery = document.getElementById("topic-mastery");
 const markPartialBtn = document.getElementById("mark-partial-btn");
 const exportProgressBtn = document.getElementById("export-progress-btn");
@@ -286,6 +289,7 @@ function bindEvents() {
   orderButtons.forEach((button) => {
     button.addEventListener("click", () => applyModeChange({ order: button.dataset.order }));
   });
+  restartRoundBtn.addEventListener("click", restartShuffleRound);
   sidebarOpenBtn.addEventListener("click", () => setSidebarOpen(true));
   sidebarCloseBtn.addEventListener("click", () => setSidebarOpen(false));
   sidebarBackdrop.addEventListener("click", () => setSidebarOpen(false));
@@ -486,8 +490,12 @@ function renderTopicPicker() {
 // The range line on the question card: which 考点, which questions, in what order.
 function renderRange() {
   const count = getCurrentSubjectQuestions({ filtered: true }).length;
-  const parts = [describeTopics(), `${SCOPE_LABELS[state.scope] || "全部题"} ${count} 题`, ORDER_LABELS[state.order] || "随机"];
+  const round = getShuffleRoundProgress();
+  const order = (ORDER_LABELS[state.order] || "随机") + (round ? `（本轮 ${round.done}/${round.total}）` : "");
+  const parts = [describeTopics(), `${SCOPE_LABELS[state.scope] || "全部题"} ${count} 题`, order];
   rangeBtn.textContent = `范围：${parts.join(" · ")}${isOnlyQuestionInScope() ? " · 只剩这一题" : ""}`;
+  shuffleRound.classList.toggle("hidden", !round);
+  if (round) shuffleRoundText.textContent = `本轮已出 ${round.done}/${round.total} 题`;
 }
 
 function openTopicDialog() {
@@ -2236,6 +2244,32 @@ function chooseShuffledCycleQuestion(questions) {
   state.shuffledOrder[key] = order;
   state.shuffledCursor[key] = cursor + 1;
   return questions.find((question) => question.id === order[cursor]) || questions[0] || null;
+}
+
+// How far the 乱序不重复 round of the current range has got; null in other orders.
+function getShuffleRoundProgress() {
+  if (state.order !== "shuffled") return null;
+  const ids = getCurrentSubjectQuestions({ filtered: true }).map((question) => question.id);
+  if (!ids.length) return null;
+  const { order, cursor } = syncShuffleRound(getShuffleKey(), ids);
+  return { done: Math.min(cursor, order.length), total: order.length };
+}
+
+// Start the current range's round over: everything is new again, starting with another question.
+function restartShuffleRound() {
+  if (!window.confirm("重新打乱当前范围，从头开始新一轮？本轮已经出过的题也会再出现。")) return;
+  const key = getShuffleKey();
+  const ids = getCurrentSubjectQuestions({ filtered: true }).map((question) => question.id);
+  const order = shuffleArray(ids);
+  if (order.length > 1 && order[0] === state.currentQuestionId) {
+    const swap = 1 + Math.floor(Math.random() * (order.length - 1));
+    [order[0], order[swap]] = [order[swap], order[0]];
+  }
+  state.shuffledOrder[key] = order;
+  state.shuffledCursor[key] = 0;
+  setSidebarOpen(false);
+  switchView("practice");
+  openNextQuestion();
 }
 
 // The whole subject keeps the key it had before rounds were split by scope.

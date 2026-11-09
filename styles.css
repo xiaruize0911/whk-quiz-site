@@ -2225,6 +2225,23 @@ mjx-container[jax="CHTML"][display="true"] {
   line-height: 1;
 }
 
+/* 乱序不重复: where the round is, and starting it over */
+.shuffle-round {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.shuffle-round .ghost-btn {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 0.8rem;
+}
+
 /* ===== 考点 dialog ===== */
 .topic-dialog {
   display: none;
