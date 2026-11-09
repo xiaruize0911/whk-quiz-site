@@ -18,6 +18,9 @@ const MODES = [
   { key: "dark", name: "深色" },
   { key: "sepia", name: "护眼" },
 ];
+const SCOPE_LABELS = { all: "全部题", choice: "仅选择题", wrong: "只刷错题", due: "今日待复习" };
+const ORDER_LABELS = { random: "随机", sprint: "冲刺", "wrong-priority": "错题优先", shuffled: "乱序不重复", sequential: "顺序" };
+
 const STAGE_LABELS = { mastered: "已背牢", scheduled: "复习中", due: "待复习", new: "未做" };
 const ANALYSIS_VERSION = "20261109a";
 const analysisBundles = {};
@@ -51,7 +54,7 @@ const WRONG_CLEAR_STEP = 3;
 const defaultProgress = {
   scope: "all",
   order: "random",
-  topicBySubject: {},
+  topicsBySubject: {},
   currentSubject: null,
   currentQuestionId: null,
   recentQueue: [],
@@ -71,7 +74,6 @@ const state = loadProgress();
 delete state.aiGrades;
 delete state.aiExplanations;
 state.answerDrafts = state.answerDrafts || {};
-state.topicBySubject = state.topicBySubject || {};
 state.dailyLog = state.dailyLog || {};
 if (!["ledger", "wrongbook", "answer-review"].includes(state.activeView)) state.activeView = "practice";
 
@@ -85,7 +87,6 @@ const settingsOpenBtn = document.getElementById("settings-open-btn");
 const paletteOptions = document.getElementById("palette-options");
 const modeOptions = document.getElementById("mode-options");
 const wrongbookList = document.getElementById("wrongbook-list");
-const questionMeta = document.getElementById("question-meta");
 const questionTitle = document.getElementById("question-title");
 const questionSection = document.getElementById("question-section");
 const materialContent = document.getElementById("material-content");
@@ -113,7 +114,17 @@ const sidebarOpenBtn = document.getElementById("sidebar-open-btn");
 const sidebarCloseBtn = document.getElementById("sidebar-close-btn");
 const mobileSubjectSelect = document.getElementById("mobile-subject-select");
 const questionToolbar = document.querySelector(".app-bar");
-const topicSelect = document.getElementById("topic-select");
+const topicPickerBtn = document.getElementById("topic-picker-btn");
+const topicPickerLabel = document.getElementById("topic-picker-label");
+const topicPickerCount = document.getElementById("topic-picker-count");
+const topicDialog = document.getElementById("topic-dialog");
+const topicOptions = document.getElementById("topic-options");
+const topicTally = document.getElementById("topic-tally");
+const topicAllBtn = document.getElementById("topic-all-btn");
+const topicNoneBtn = document.getElementById("topic-none-btn");
+const topicApplyBtn = document.getElementById("topic-apply-btn");
+const questionTopic = document.getElementById("question-topic");
+const rangeBtn = document.getElementById("range-btn");
 const topicMastery = document.getElementById("topic-mastery");
 const markPartialBtn = document.getElementById("mark-partial-btn");
 const exportProgressBtn = document.getElementById("export-progress-btn");
@@ -157,7 +168,7 @@ function init() {
   const subjects = Object.keys(questionBank.subjects);
   if (!subjects.length) {
     questionTitle.textContent = "题库为空";
-    questionMeta.textContent = "未找到可用数据";
+    questionTopic.textContent = "未找到可用数据";
     return;
   }
 
@@ -166,7 +177,7 @@ function init() {
   }
 
   renderSubjects();
-  renderTopicSelect();
+  renderTopicPicker();
   renderModeButtons();
   renderThemeOptions();
   bindEvents();
@@ -185,7 +196,15 @@ function bindEvents() {
   markCorrectBtn.addEventListener("click", () => selfMark(true));
   markPartialBtn.addEventListener("click", () => selfMark("partial"));
   markWrongBtn.addEventListener("click", () => selfMark(false));
-  topicSelect.addEventListener("change", () => selectTopic(topicSelect.value));
+  topicPickerBtn.addEventListener("click", openTopicDialog);
+  rangeBtn.addEventListener("click", openTopicDialog);
+  topicDialog.addEventListener("click", (event) => {
+    if (event.target === topicDialog) topicDialog.close();
+  });
+  topicOptions.addEventListener("change", renderTopicTally);
+  topicAllBtn.addEventListener("click", () => setTopicChecks(true));
+  topicNoneBtn.addEventListener("click", () => setTopicChecks(false));
+  topicApplyBtn.addEventListener("click", applyTopicDialog);
   exportProgressBtn.addEventListener("click", exportProgress);
   importProgressBtn.addEventListener("click", () => importProgressInput.click());
   importProgressInput.addEventListener("change", importProgress);
@@ -387,7 +406,7 @@ function selectSubject(subject) {
   state.currentSubject = subject;
   persist();
   renderSubjects();
-  renderTopicSelect();
+  renderTopicPicker();
   openNextQuestion();
   renderStats();
   renderQuestionLedger();
@@ -424,10 +443,26 @@ function getQuestionTopic(question) {
   return question.group || question.section || "未分组";
 }
 
-function getCurrentTopic() {
-  const topic = state.topicBySubject[state.currentSubject] || "";
-  const exists = getCurrentSubjectQuestions().some((question) => getQuestionTopic(question) === topic);
-  return exists ? topic : "";
+// The 考点 chosen for the current subject; [] means all of them (also when every one is ticked).
+function getSelectedTopics() {
+  const topics = [...getSubjectTopics().keys()];
+  const chosen = (state.topicsBySubject[state.currentSubject] || []).filter((topic) => topics.includes(topic));
+  return chosen.length && chosen.length < topics.length ? topics.filter((topic) => chosen.includes(topic)) : [];
+}
+
+function inSelectedTopics(question, topics = getSelectedTopics()) {
+  return !topics.length || topics.includes(getQuestionTopic(question));
+}
+
+function describeTopics(topics = getSelectedTopics()) {
+  if (!topics.length) return "全部考点";
+  return topics.length === 1 ? topics[0] : `${topics.length} 个考点`;
+}
+
+function setSelectedTopics(topics) {
+  state.topicsBySubject[state.currentSubject] = topics;
+  renderTopicPicker();
+  applyModeChange({});
 }
 
 function getSubjectTopics() {
@@ -440,19 +475,71 @@ function getSubjectTopics() {
   return topics;
 }
 
-function renderTopicSelect() {
-  const current = getCurrentTopic();
-  topicSelect.innerHTML = "";
-  topicSelect.add(new Option(`全部考点 · ${getCurrentSubjectQuestions().length}`, "", false, !current));
-  getSubjectTopics().forEach((questions, topic) => {
-    topicSelect.add(new Option(`${topic} · ${questions.length}`, topic, false, topic === current));
-  });
+function renderTopicPicker() {
+  const topics = getSelectedTopics();
+  const count = getCurrentSubjectQuestions().filter((question) => inSelectedTopics(question, topics)).length;
+  topicPickerLabel.textContent = describeTopics(topics);
+  topicPickerCount.textContent = `${count} 题`;
+  topicPickerBtn.title = topics.length > 1 ? topics.join("\n") : "选择考点";
 }
 
-function selectTopic(topic) {
-  state.topicBySubject[state.currentSubject] = topic;
-  renderTopicSelect();
-  applyModeChange({});
+// The range line on the question card: which 考点, which questions, in what order.
+function renderRange() {
+  const count = getCurrentSubjectQuestions({ filtered: true }).length;
+  const parts = [describeTopics(), `${SCOPE_LABELS[state.scope] || "全部题"} ${count} 题`, ORDER_LABELS[state.order] || "随机"];
+  rangeBtn.textContent = `范围：${parts.join(" · ")}${isOnlyQuestionInScope() ? " · 只剩这一题" : ""}`;
+}
+
+function openTopicDialog() {
+  setSidebarOpen(false);
+  const selected = getSelectedTopics();
+  const wrong = new Set(state.wrongBook);
+  topicOptions.innerHTML = "";
+  getSubjectTopics().forEach((questions, topic) => {
+    const wrongCount = questions.filter((question) => wrong.has(question.id)).length;
+    const dueCount = questions.filter((question) => isReviewDue(getProgressFor(question.id))).length;
+    const label = document.createElement("label");
+    label.className = "topic-option";
+    label.innerHTML = `
+      <input type="checkbox" value="${escapeHtml(topic)}"${!selected.length || selected.includes(topic) ? " checked" : ""} />
+      <span class="topic-option-name">${escapeHtml(topic)}</span>
+      <span class="topic-option-meta">${questions.length} 题${wrongCount ? ` · 错 ${wrongCount}` : ""}${dueCount ? ` · 待复习 ${dueCount}` : ""}</span>`;
+    topicOptions.appendChild(label);
+  });
+  renderTopicTally();
+  topicDialog.showModal();
+}
+
+function getCheckedTopics() {
+  return [...topicOptions.querySelectorAll("input:checked")].map((input) => input.value);
+}
+
+function setTopicChecks(checked) {
+  topicOptions.querySelectorAll("input").forEach((input) => {
+    input.checked = checked;
+  });
+  renderTopicTally();
+}
+
+function renderTopicTally() {
+  const checked = getCheckedTopics();
+  const total = topicOptions.querySelectorAll("input").length;
+  const questions = getCurrentSubjectQuestions().filter((question) => checked.includes(getQuestionTopic(question)));
+  const inScope = filterQuestionsByMode(questions, checked).length;
+  topicTally.textContent = `已选 ${checked.length}/${total} 个考点 · ${questions.length} 题`;
+  topicApplyBtn.disabled = !checked.length;
+  topicApplyBtn.textContent = !checked.length
+    ? "至少选一个考点"
+    : state.scope === "all" ? `开始练习 · ${inScope} 题` : `开始练习 · ${SCOPE_LABELS[state.scope]} ${inScope} 题`;
+}
+
+function applyTopicDialog() {
+  const checked = getCheckedTopics();
+  if (!checked.length) return;
+  const all = checked.length === topicOptions.querySelectorAll("input").length;
+  topicDialog.close();
+  switchView("practice");
+  setSelectedTopics(all ? [] : checked);
 }
 
 function getCurrentSubjectQuestions({ filtered = false } = {}) {
@@ -514,8 +601,9 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
   answeredThisRound = false;
   setAnswerLocked(false);
   if (!currentQuestion) {
-    questionMeta.textContent = "当前模式没有可用题目";
-    questionTitle.textContent = "换个模式或先积累错题";
+    questionTopic.textContent = "";
+    questionTitle.textContent = "当前范围没有题目：换个考点或范围，或先积累错题";
+    renderRange();
     promptContent.innerHTML = "";
     choiceWrapper.classList.add("hidden");
     inputWrapper.classList.add("hidden");
@@ -532,7 +620,7 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
   if (state.currentSubject !== currentQuestion.subject) {
     state.currentSubject = currentQuestion.subject;
     renderSubjects();
-    renderTopicSelect();
+    renderTopicPicker();
   }
 
   if (pushHistory) {
@@ -550,10 +638,10 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
   }
   persist();
 
-  questionMeta.textContent = `${currentQuestion.subject} · ${currentQuestion.source}`
-    + (isOnlyQuestionInScope() ? " · 当前范围只有这一题" : "");
-  const groupText = currentQuestion.group ? `${currentQuestion.group} · ` : "";
-  questionTitle.textContent = `${groupText}${currentQuestion.label} ${currentQuestion.kind === "choice" ? "选择题" : "主观题"}`;
+  questionTopic.textContent = getQuestionTopic(currentQuestion);
+  questionTopic.title = `${currentQuestion.subject} · ${currentQuestion.source}`;
+  renderRange();
+  questionTitle.textContent = `${currentQuestion.label} ${currentQuestion.kind === "choice" ? "选择题" : "主观题"}`;
   questionSection.textContent = currentQuestion.section || "未标注题型";
   const choiceContent = currentQuestion.kind === "choice"
     ? splitChoiceContent(currentQuestion)
@@ -662,6 +750,7 @@ function markChoiceOptions(answer, selected = "") {
 
 function handleGlobalKeydown(event) {
   if (!currentQuestion) return;
+  if (document.querySelector("dialog[open]")) return; // keys belong to the open dialog
 
   const target = event.target;
   const isEditable = isEditableTarget(target);
@@ -1347,9 +1436,9 @@ function renderQuestionLedger() {
   if (!questionLedger || !ledgerSummary || state.activeView !== "ledger") return;
   renderProgressOverview();
   renderTopicMastery();
-  const topic = getCurrentTopic();
-  ledgerSubjectTitle.textContent = `${state.currentSubject}${topic ? ` · ${topic}` : ""}`;
-  const questions = getCurrentSubjectQuestions().filter((question) => !topic || getQuestionTopic(question) === topic);
+  const topics = getSelectedTopics();
+  ledgerSubjectTitle.textContent = `${state.currentSubject}${topics.length ? ` · ${describeTopics(topics)}` : ""}`;
+  const questions = getCurrentSubjectQuestions().filter((question) => inSelectedTopics(question, topics));
   const answered = questions.filter((question) => getAttempts(getProgressFor(question.id)) > 0).length;
   const wrongCount = questions.filter((question) => state.wrongBook.includes(question.id)).length;
   const totalAttempts = questions.reduce((sum, question) => sum + getAttempts(getProgressFor(question.id)), 0);
@@ -1357,7 +1446,7 @@ function renderQuestionLedger() {
   const dueCount = questions.filter((question) => isReviewDue(getProgressFor(question.id))).length;
 
   ledgerSummary.innerHTML = [
-    `<span>${topic ? escapeHtml(topic) : "全部考点"} · 题目 ${questions.length}</span>`,
+    `<span>${escapeHtml(describeTopics(topics))} · 题目 ${questions.length}</span>`,
     `<span>已背牢 ${masteredCount}</span>`,
     `<span>待复习 ${dueCount}</span>`,
     `<span>已答 ${answered}</span>`,
@@ -1411,7 +1500,7 @@ function getMasteryTone(practiced, accuracy) {
 }
 
 function renderTopicMastery() {
-  const current = getCurrentTopic();
+  const selected = getSelectedTopics();
   const cards = [];
   getSubjectTopics().forEach((questions, topic) => {
     const totals = questions.reduce(
@@ -1432,7 +1521,7 @@ function renderTopicMastery() {
     const masteredShare = Math.round((totals.mastered / questions.length) * 100);
     const tone = getMasteryTone(totals.practiced, accuracy);
     cards.push(`
-      <button class="mastery-card mastery-${tone}${topic === current ? " active" : ""}" data-topic="${escapeHtml(topic)}">
+      <button class="mastery-card mastery-${tone}${selected.includes(topic) ? " active" : ""}" data-topic="${escapeHtml(topic)}">
         <strong>${escapeHtml(topic)}</strong>
         <span class="mastery-accuracy">${totals.practiced ? `${accuracy}%` : "未练"}</span>
         <span class="mastery-bar" title="已背牢 ${totals.mastered}/${questions.length}"><span style="width:${masteredShare}%"></span></span>
@@ -1442,18 +1531,16 @@ function renderTopicMastery() {
   topicMastery.innerHTML = `
     <div class="mastery-head">
       <h3>考点掌握</h3>
-      <span class="muted">点击考点即可只练该考点${current ? ` · <button class="ghost-btn mastery-clear" data-topic="">看全部考点</button>` : ""}</span>
+      <span class="muted">点击考点即可只练该考点，多选请用侧栏「考点」${selected.length ? ` · <button class="ghost-btn mastery-clear" data-topic="">看全部考点</button>` : ""}</span>
     </div>
     <div class="mastery-grid">${cards.join("")}</div>`;
   topicMastery.querySelectorAll("[data-topic]").forEach((button) => {
     button.addEventListener("click", () => {
       const topic = button.dataset.topic;
-      state.topicBySubject[state.currentSubject] = topic;
-      renderTopicSelect();
       if (topic) {
         switchView("practice");
       }
-      applyModeChange({});
+      setSelectedTopics(topic ? [topic] : []);
     });
   });
 }
@@ -1497,10 +1584,10 @@ async function importProgress() {
 }
 
 function getAnswerReviewQuestions() {
-  const topic = getCurrentTopic();
+  const topics = getSelectedTopics();
   const query = answerReviewSearch.value.trim().toLowerCase();
   return getCurrentSubjectQuestions().filter((question) => {
-    if (topic && getQuestionTopic(question) !== topic) return false;
+    if (!inSelectedTopics(question, topics)) return false;
     if (!query) return true;
     const haystack = `${question.label} ${getQuestionTopic(question)} ${stripHtml(question.promptHtml)} ${stripHtml(question.optionsHtml)} ${stripHtml(question.answerHtml)}`;
     return haystack.toLowerCase().includes(query);
@@ -1511,7 +1598,7 @@ function renderAnswerReview() {
   if (state.activeView !== "answer-review") return;
   if (!answerReviewList || !answerReviewSummary) return;
   const questions = getAnswerReviewQuestions();
-  const topic = getCurrentTopic();
+  const topics = getSelectedTopics();
   answerReviewList.classList.toggle("covered", Boolean(state.coverAnswers));
   answerReviewPlainText.classList.toggle("hidden", Boolean(state.coverAnswers));
   answerReviewCoverBtn.classList.toggle("active", Boolean(state.coverAnswers));
@@ -1522,7 +1609,7 @@ function renderAnswerReview() {
   const groups = groupQuestionsForAnswerReview(questions);
 
   answerReviewSummary.innerHTML = [
-    `<span>${state.currentSubject}${topic ? ` · ${escapeHtml(topic)}` : ""}</span>`,
+    `<span>${state.currentSubject}${topics.length ? ` · ${escapeHtml(describeTopics(topics))}` : ""}</span>`,
     `<span>共 ${questions.length} 题</span>`,
     `<span>选择 ${choiceCount}</span>`,
     `<span>主观 ${subjectiveCount}</span>`,
@@ -1761,8 +1848,8 @@ function scoreKeyword(token) {
 
 function buildAnswerReviewText() {
   const questions = getAnswerReviewQuestions();
-  const topic = getCurrentTopic();
-  const lines = [`${state.currentSubject}${topic ? `·${topic}` : ""}高频背答案表`, `共 ${questions.length} 题`, ""];
+  const topics = getSelectedTopics();
+  const lines = [`${state.currentSubject}${topics.length ? `·${topics.join("、")}` : ""}高频背答案表`, `共 ${questions.length} 题`, ""];
   groupQuestionsForAnswerReview(questions).forEach((group) => {
     lines.push(`【${group.title}】`);
     group.questions.forEach((question) => {
@@ -2153,8 +2240,10 @@ function chooseShuffledCycleQuestion(questions) {
 
 // The whole subject keeps the key it had before rounds were split by scope.
 function getShuffleKey() {
-  const topic = getCurrentTopic();
-  return state.scope === "all" && !topic ? state.currentSubject : `${state.currentSubject}|${state.scope}|${topic}`;
+  const topics = getSelectedTopics();
+  return state.scope === "all" && !topics.length
+    ? state.currentSubject
+    : `${state.currentSubject}|${state.scope}|${[...topics].sort().join("、")}`;
 }
 
 // Fit a saved round to the questions now in scope (the wrong book and due list change as you
@@ -2171,11 +2260,8 @@ function syncShuffleRound(key, ids) {
   return { order: [...done, ...rest], cursor: done.length };
 }
 
-function filterQuestionsByMode(allQuestions) {
-  const topic = getCurrentTopic();
-  const questions = topic
-    ? allQuestions.filter((question) => getQuestionTopic(question) === topic)
-    : allQuestions;
+function filterQuestionsByMode(allQuestions, topics = getSelectedTopics()) {
+  const questions = allQuestions.filter((question) => inSelectedTopics(question, topics));
   if (state.scope === "due") {
     return questions.filter((question) => isReviewDue(getProgressFor(question.id)));
   }
@@ -2639,7 +2725,12 @@ function migrateMode(progress) {
     });
     progress.scheduleVersion = 2;
   }
-  progress.topicBySubject = progress.topicBySubject || {};
+  // One 考点 per subject became a list: [] (or every topic) means the whole subject.
+  progress.topicsBySubject = progress.topicsBySubject || {};
+  Object.entries(progress.topicBySubject || {}).forEach(([subject, topic]) => {
+    if (topic && !progress.topicsBySubject[subject]) progress.topicsBySubject[subject] = [topic];
+  });
+  delete progress.topicBySubject;
   return progress;
 }
 

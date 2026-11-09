@@ -19,7 +19,7 @@
         if (theme.mode) document.documentElement.dataset.mode = theme.mode;
       } catch (error) {}
     </script>
-    <link rel="stylesheet" href="./styles.css?v=20261104g" />
+    <link rel="stylesheet" href="./styles.css?v=20261109d" />
     <script>
       window.MathJax = {
         loader: { load: ["[tex]/mathtools"] },
@@ -74,7 +74,10 @@
 
         <section class="sidebar-section">
           <h2>考点</h2>
-          <select id="topic-select" class="topic-select" aria-label="选择考点"></select>
+          <button id="topic-picker-btn" class="topic-picker-btn" type="button" aria-haspopup="dialog">
+            <span id="topic-picker-label" class="topic-picker-label">全部考点</span>
+            <span id="topic-picker-count" class="topic-picker-count"></span>
+          </button>
         </section>
 
         <section class="sidebar-section">
@@ -125,7 +128,10 @@
 
         <section id="practice-view" class="question-card">
           <div class="question-head">
-            <p id="question-meta" class="eyebrow">等待载入</p>
+            <div class="question-topline">
+              <span id="question-topic" class="question-topic"></span>
+              <button id="range-btn" class="range-btn" type="button" aria-haspopup="dialog" title="调整练习范围"></button>
+            </div>
             <h2 id="question-title">正在准备题库</h2>
             <div class="question-section-row">
               <div id="question-section" class="question-section"></div>
@@ -241,12 +247,28 @@
       </section>
     </dialog>
 
+    <dialog id="topic-dialog" class="settings-dialog topic-dialog" aria-labelledby="topic-dialog-title">
+      <form method="dialog" class="settings-head">
+        <h2 id="topic-dialog-title">选择考点</h2>
+        <button class="icon-btn" aria-label="关闭">×</button>
+      </form>
+      <div class="topic-tools">
+        <button id="topic-all-btn" class="ghost-btn" type="button">全选</button>
+        <button id="topic-none-btn" class="ghost-btn" type="button">全不选</button>
+        <span id="topic-tally" class="muted topic-tally"></span>
+      </div>
+      <div id="topic-options" class="topic-options"></div>
+      <div class="topic-footer">
+        <button id="topic-apply-btn" class="primary-btn" type="button">开始练习</button>
+      </div>
+    </dialog>
+
     <div id="image-zoom" class="image-zoom hidden" role="dialog" aria-modal="true" aria-label="图片预览">
       <button id="image-zoom-close" class="image-zoom-close" aria-label="关闭图片预览">×</button>
       <img id="image-zoom-img" alt="" />
     </div>
 
     <script src="./data/questions.js?v=20261109a"></script>
-    <script src="./app.js?v=20261109b"></script>
+    <script src="./app.js?v=20261109d"></script>
   </body>
 </html>
