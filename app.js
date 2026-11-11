@@ -18,6 +18,11 @@ const MODES = [
   { key: "dark", name: "深色" },
   { key: "sepia", name: "护眼" },
 ];
+// Recitation audio, shown at the top of 背答案 for its subject.
+const RECITATION_AUDIO = {
+  语文: [{ title: "期中背诵音频", src: "media/yuwen-midterm-recitation.mp3", duration: "1:13" }],
+};
+const AUDIO_RATES = [0.75, 1, 1.25, 1.5];
 const SCOPE_LABELS = { all: "全部题", choice: "仅选择题", wrong: "只刷错题", due: "今日待复习" };
 const ORDER_LABELS = { random: "随机", sprint: "冲刺", "wrong-priority": "错题优先", shuffled: "乱序不重复", sequential: "顺序" };
 
@@ -125,6 +130,8 @@ const topicNoneBtn = document.getElementById("topic-none-btn");
 const topicApplyBtn = document.getElementById("topic-apply-btn");
 const questionTopic = document.getElementById("question-topic");
 const rangeBtn = document.getElementById("range-btn");
+const recitationAudio = document.getElementById("recitation-audio");
+const offlineStatus = document.getElementById("offline-status");
 const shuffleRound = document.getElementById("shuffle-round");
 const shuffleRoundText = document.getElementById("shuffle-round-text");
 const restartRoundBtn = document.getElementById("restart-round-btn");
@@ -290,6 +297,7 @@ function bindEvents() {
     button.addEventListener("click", () => applyModeChange({ order: button.dataset.order }));
   });
   restartRoundBtn.addEventListener("click", restartShuffleRound);
+  setupOffline();
   sidebarOpenBtn.addEventListener("click", () => setSidebarOpen(true));
   sidebarCloseBtn.addEventListener("click", () => setSidebarOpen(false));
   sidebarBackdrop.addEventListener("click", () => setSidebarOpen(false));
@@ -1553,6 +1561,75 @@ function renderTopicMastery() {
   });
 }
 
+// Built once per subject, so re-rendering the list (e.g. while searching) doesn't stop playback.
+function renderRecitationAudio() {
+  const tracks = RECITATION_AUDIO[state.currentSubject] || [];
+  if (recitationAudio.dataset.subject === state.currentSubject) return;
+  recitationAudio.querySelectorAll("audio").forEach((audio) => audio.pause());
+  recitationAudio.dataset.subject = state.currentSubject;
+  recitationAudio.classList.toggle("hidden", !tracks.length);
+  const rate = AUDIO_RATES.includes(state.audioRate) ? state.audioRate : 1;
+  recitationAudio.innerHTML = tracks.map((track) => `
+    <div class="recitation-track">
+      <div class="recitation-head">
+        <strong>${escapeHtml(track.title)}</strong>
+        <span class="muted">${escapeHtml(state.currentSubject)} · ${escapeHtml(track.duration)}</span>
+      </div>
+      <audio controls preload="metadata" src="${escapeHtml(track.src)}"></audio>
+      <div class="recitation-tools">
+        <span class="segmented recitation-rates" role="group" aria-label="播放速度">
+          ${AUDIO_RATES.map((value) => `<button class="mode-btn${value === rate ? " active" : ""}" type="button" data-rate="${value}">${value}×</button>`).join("")}
+        </span>
+        <label class="recitation-loop"><input type="checkbox"${state.audioLoop ? " checked" : ""} /> 循环播放</label>
+      </div>
+    </div>`).join("");
+  recitationAudio.querySelectorAll(".recitation-track").forEach((trackEl) => {
+    const audio = trackEl.querySelector("audio");
+    audio.playbackRate = rate;
+    audio.loop = Boolean(state.audioLoop);
+    trackEl.querySelectorAll("[data-rate]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.audioRate = Number(button.dataset.rate);
+        audio.playbackRate = state.audioRate;
+        trackEl.querySelectorAll("[data-rate]").forEach((other) => other.classList.toggle("active", other === button));
+        persist();
+      });
+    });
+    trackEl.querySelector(".recitation-loop input").addEventListener("change", (event) => {
+      state.audioLoop = event.target.checked;
+      audio.loop = state.audioLoop;
+      persist();
+    });
+  });
+}
+
+// Offline: sw.js keeps every file the site needs (see tools/build_sw.py); this shows how far it got.
+function setupOffline() {
+  if (!("serviceWorker" in navigator)) {
+    offlineStatus.textContent = "这个浏览器不支持离线使用。";
+    return;
+  }
+  navigator.serviceWorker.addEventListener("message", (event) => {
+    if (event.data?.type === "offline-status") renderOfflineStatus(event.data);
+  });
+  navigator.serviceWorker.register("./sw.js").then((registration) => {
+    const ask = () => (navigator.serviceWorker.controller || registration.active)?.postMessage({ type: "offline-status" });
+    ask();
+    navigator.serviceWorker.addEventListener("controllerchange", ask);
+    settingsOpenBtn.addEventListener("click", ask);
+  }).catch(() => {
+    offlineStatus.textContent = "离线功能启动失败，联网刷新一次再试。";
+  });
+  // Ask the browser not to clear saved files and progress when space runs low.
+  navigator.storage?.persist?.();
+}
+
+function renderOfflineStatus({ cached, total, megabytes, done }) {
+  offlineStatus.textContent = done
+    ? `已可离线使用：题目、解析、图片和音频都已保存在本机（${megabytes} MB）。断网也能打开刷题，进度照常保存。`
+    : `正在保存离线数据：${cached}/${total} 个文件。保持联网，完成后断网也能用。`;
+}
+
 function exportProgress() {
   const payload = {
     app: "whk-quiz-site",
@@ -1607,6 +1684,7 @@ function renderAnswerReview() {
   if (!answerReviewList || !answerReviewSummary) return;
   const questions = getAnswerReviewQuestions();
   const topics = getSelectedTopics();
+  renderRecitationAudio();
   answerReviewList.classList.toggle("covered", Boolean(state.coverAnswers));
   answerReviewPlainText.classList.toggle("hidden", Boolean(state.coverAnswers));
   answerReviewCoverBtn.classList.toggle("active", Boolean(state.coverAnswers));

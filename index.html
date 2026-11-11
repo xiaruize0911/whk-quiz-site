@@ -19,7 +19,7 @@
         if (theme.mode) document.documentElement.dataset.mode = theme.mode;
       } catch (error) {}
     </script>
-    <link rel="stylesheet" href="./styles.css?v=20261109e" />
+    <link rel="stylesheet" href="./styles.css?v=20261111a" />
     <script>
       window.MathJax = {
         loader: { load: ["[tex]/mathtools"] },
@@ -210,6 +210,7 @@
               <button id="copy-answer-review-btn" class="primary-btn">复制当前列表答案</button>
             </div>
           </div>
+          <section id="recitation-audio" class="recitation-audio hidden" aria-label="背诵音频"></section>
           <div class="answer-review-tools">
             <input id="answer-review-search" class="answer-review-search" type="search" placeholder="搜索题干、选项或答案关键词" aria-label="搜索背答案列表" />
             <button id="answer-review-cover-btn" class="ghost-btn">遮住答案自测</button>
@@ -234,6 +235,10 @@
       <section class="settings-section">
         <h3>明暗</h3>
         <div id="mode-options" class="mode-stack segmented mode-options"></div>
+      </section>
+      <section class="settings-section">
+        <h3>离线使用</h3>
+        <p id="offline-status" class="muted offline-status">正在检查…</p>
       </section>
       <section class="settings-section">
         <h3>数据备份</h3>
@@ -273,6 +278,6 @@
     </div>
 
     <script src="./data/questions.js?v=20261109a"></script>
-    <script src="./app.js?v=20261109e"></script>
+    <script src="./app.js?v=20261111a"></script>
   </body>
 </html>

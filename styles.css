@@ -1919,6 +1919,78 @@ mjx-container[jax="CHTML"][display="true"] {
   justify-items: end;
 }
 
+/* 背诵音频 at the top of 背答案 */
+.recitation-audio {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.recitation-track + .recitation-track {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.recitation-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-bottom: 8px;
+}
+
+.recitation-head .muted {
+  font-size: 0.82rem;
+}
+
+.recitation-audio audio {
+  display: block;
+  width: 100%;
+  height: 40px;
+}
+
+.recitation-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  margin-top: 10px;
+}
+
+.recitation-rates {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.recitation-rates .mode-btn {
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+.recitation-loop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-2);
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.recitation-loop input {
+  accent-color: var(--accent);
+}
+
+.offline-status {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.6;
+}
+
 .answer-review-tools {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
