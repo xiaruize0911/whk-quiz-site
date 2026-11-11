@@ -27,7 +27,7 @@ const SCOPE_LABELS = { all: "全部题", choice: "仅选择题", wrong: "只刷�
 const ORDER_LABELS = { random: "随机", sprint: "冲刺", "wrong-priority": "错题优先", shuffled: "乱序不重复", sequential: "顺序" };
 
 const STAGE_LABELS = { mastered: "已背牢", scheduled: "复习中", due: "待复习", new: "未做" };
-const ANALYSIS_VERSION = "20261109a";
+const ANALYSIS_VERSION = "20261111b";
 const analysisBundles = {};
 let mathQueue = Promise.resolve();
 // Which slice of the wrong book the 进度 page lists: all, due, or a tier key.

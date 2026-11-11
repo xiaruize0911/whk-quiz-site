@@ -2,22 +2,22 @@
 // Every file the site needs is saved under the exact URL the page asks for (app.js?v=…), so a
 // saved page only ever pairs with its own scripts and data. A new deploy gets a new VERSION;
 // files whose content did not change are copied from the old cache instead of downloaded again.
-const VERSION = "cf552b1192a9";
+const VERSION = "7eda4bb24626";
 const CACHE = `whk-quiz-${VERSION}`;
 const PRECACHE = [
-  ["index.html", "0046c5e18c39", 14843],
-  ["./", "0046c5e18c39", 14843],
-  ["app.js?v=20261111a", "f27a68dc57b0", 116633],
+  ["index.html", "e02d39702293", 14843],
+  ["./", "e02d39702293", 14843],
+  ["app.js?v=20261111b", "f76add447e9c", 116633],
   ["styles.css?v=20261111a", "f1a3dc59cbf6", 62070],
   ["manifest.webmanifest", "26ebc6b56980", 668],
   ["favicon.ico", "6f68a67725b1", 5190],
-  ["data/questions.js?v=20261109a", "1d8f396f02fd", 1877886],
-  ["data/analysis/biology.json?v=20261109a", "88f3213881f0", 642501],
-  ["data/analysis/chemistry.json?v=20261109a", "64fa57a855b0", 357507],
-  ["data/analysis/chinese.json?v=20261109a", "d638f11409fa", 152286],
-  ["data/analysis/english.json?v=20261109a", "aed7bc5d8be3", 432011],
-  ["data/analysis/math.json?v=20261109a", "0016192ce708", 366559],
-  ["data/analysis/physics.json?v=20261109a", "c5a2249a4fdb", 255358],
+  ["data/questions.js?v=20261111b", "90153e2cab98", 1877886],
+  ["data/analysis/biology.json?v=20261111b", "5bef2db77cde", 642100],
+  ["data/analysis/chemistry.json?v=20261111b", "64fa57a855b0", 357507],
+  ["data/analysis/chinese.json?v=20261111b", "d638f11409fa", 152286],
+  ["data/analysis/english.json?v=20261111b", "aed7bc5d8be3", 432011],
+  ["data/analysis/math.json?v=20261111b", "0016192ce708", 366559],
+  ["data/analysis/physics.json?v=20261111b", "c5a2249a4fdb", 255358],
   ["data/assets/biology/image001.jpg", "b7b4b1f20b61", 7391],
   ["data/assets/biology/image002.png", "ecdb0f874d33", 15277],
   ["data/assets/biology/image003.png", "a09dd7331610", 12017],
