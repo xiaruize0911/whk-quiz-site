@@ -3452,3 +3452,124 @@ mjx-container[jax="CHTML"][display="true"] {
   margin-right: 8px;
   color: var(--ink);
 }
+
+/* ===== 作答记录 ===== */
+.option-picked {
+  display: none;
+  flex: none;
+  align-self: center;
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--ink-2);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.option-picked.is-wrong {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.option-list.answered .option-picked {
+  display: inline-block;
+}
+
+.option-picked + .option-origin {
+  margin-left: 0;
+}
+
+.pick-history {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: 0.86rem;
+}
+
+.pick-head,
+.pick-summary,
+.pick-legacy {
+  margin: 0 0 6px !important;
+}
+
+.pick-head strong {
+  margin-right: 6px;
+}
+
+.pick-trap {
+  margin-left: 6px;
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.pick-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.pick-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  white-space: nowrap;
+}
+
+.pick-chip.ok .pick-mark { color: var(--success); }
+.pick-chip.bad .pick-mark { color: var(--danger); }
+.pick-chip.bad .pick-letter { color: var(--danger); }
+
+.pick-chip.latest {
+  font-weight: 600;
+}
+
+.pick-chip.latest.ok { border-color: var(--success); }
+.pick-chip.latest.bad { border-color: var(--danger); }
+
+.pick-letter {
+  font-weight: 700;
+}
+
+.pick-time {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.ledger-picks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 0.8rem;
+}
+
+.pick-dot {
+  padding: 0 5px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.pick-dot.ok {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.pick-dot.bad {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ledger-picks .pick-trap {
+  margin-left: 4px;
+}

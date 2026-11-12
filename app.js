@@ -838,7 +838,80 @@ function markChoiceOptions(answer, selected = "") {
     const label = option.dataset.originalLabel;
     option.classList.toggle("correct", label === answer);
     option.classList.toggle("wrong", Boolean(selected) && label === selected && label !== answer);
+    option.querySelector(".option-picked")?.remove();
+    const times = getPicks(currentQuestion.id).filter((pick) => pick.pick === label).length;
+    if (times) {
+      const tag = `<span class="option-picked${label === answer ? "" : " is-wrong"}">选过 ${times} 次</span>`;
+      option.querySelector(".option-body").insertAdjacentHTML("afterend", tag);
+    }
   });
+}
+
+// Every choice answer: when, which option (the paper's letter, so it holds across shuffles)
+// and whether it was right at the time. The newest PICKS_KEPT are kept per question.
+const PICKS_KEPT = 30;
+
+function getPicks(questionId) {
+  return state.stats[questionId]?.picks || [];
+}
+
+function recordPick(questionId, pick, ok) {
+  const progress = getProgressFor(questionId);
+  progress.picks = [...(progress.picks || []), { at: Date.now(), pick, ok }].slice(-PICKS_KEPT);
+}
+
+// "，这是你第 3 次选 C" once the same wrong option has been picked before.
+function describeRepeatedPick(questionId, pick) {
+  const times = getPicks(questionId).filter((item) => item.pick === pick && !item.ok).length;
+  return times > 1 ? `。这是你第 ${times} 次错选 ${describeChoice(toShownLabel(pick))}` : "";
+}
+
+function formatPickTime(at) {
+  const clock = `${String(new Date(at).getHours()).padStart(2, "0")}:${String(new Date(at).getMinutes()).padStart(2, "0")}`;
+  if (dayKey(at) === dayKey()) return `今天 ${clock}`;
+  if (dayKey(at) === dayKey(Date.now() - DAY_MS)) return `昨天 ${clock}`;
+  return formatLastSeen(at);
+}
+
+// Wrong options picked, most often first: [["C", 2], ["B", 1]].
+function tallyWrongPicks(picks) {
+  const counts = {};
+  picks.filter((item) => !item.ok).forEach((item) => { counts[item.pick] = (counts[item.pick] || 0) + 1; });
+  return Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+
+function renderPickHistory(question) {
+  answerContent.querySelector(".pick-history")?.remove();
+  const picks = getPicks(question.id);
+  const progress = getProgressFor(question.id);
+  const unrecorded = Math.max(0, getAttempts(progress) - picks.length);
+  if (!picks.length && !unrecorded) return;
+  const right = picks.filter((item) => item.ok).length;
+  const wrongTally = tallyWrongPicks(picks);
+  const lines = [];
+  if (picks.length) {
+    lines.push(`<p class="pick-summary">已记录 ${picks.length} 次：对 ${right} · 错 ${picks.length - right}${wrongTally.length ? ` <span class="pick-trap">错选 ${wrongTally.map(([label, count]) => `${label}×${count}`).join(" · ")}</span>` : ""}</p>`);
+    const latest = answeredThisRound ? picks.length - 1 : -1;
+    const chips = picks.map((item, index) => `
+      <li class="pick-chip ${item.ok ? "ok" : "bad"}${index === latest ? " latest" : ""}">
+        <span class="pick-letter">${item.pick}</span><span class="pick-mark">${item.ok ? "✓" : "✗"}</span>
+        <span class="pick-time">${index === latest ? "本次" : formatPickTime(item.at)}</span>
+      </li>`);
+    lines.push(`<ol class="pick-list">${chips.join("")}</ol>`);
+  }
+  if (unrecorded) lines.push(`<p class="muted pick-legacy">另有 ${unrecorded} 次更早的作答没有选项记录。</p>`);
+  const letters = choiceOrder ? "（原卷字母）" : "";
+  answerContent.insertAdjacentHTML("afterbegin",
+    `<section class="pick-history"><p class="pick-head"><strong>作答记录</strong><span class="muted">${letters}</span></p>${lines.join("")}</section>`);
+}
+
+// One line for the 进度 page: the latest picks, newest last, and the options most often picked wrong.
+function renderLedgerPicks(question) {
+  const picks = getPicks(question.id);
+  if (question.kind !== "choice" || !picks.length) return "";
+  const recent = picks.slice(-10).map((item) => `<span class="pick-dot ${item.ok ? "ok" : "bad"}" title="${formatPickTime(item.at)}">${item.pick}${item.ok ? "✓" : "✗"}</span>`).join("");
+  const trap = tallyWrongPicks(picks)[0];
+  return `<div class="ledger-picks"><span class="muted">选过</span>${picks.length > 10 ? "<span class=\"muted\">…</span>" : ""}${recent}${trap && trap[1] > 1 ? `<span class="pick-trap">常错 ${trap[0]}×${trap[1]}</span>` : ""}</div>`;
 }
 
 function handleGlobalKeydown(event) {
@@ -932,12 +1005,13 @@ function gradeChoice(question, shown) {
   const selected = toOriginalLabel(shown);
   const isCorrect = answer === selected;
   answeredThisRound = true;
+  recordPick(question.id, selected, isCorrect);
   markChoiceOptions(answer, selected);
   const outcome = updateProgress(question.id, isCorrect);
     feedbackBox.className = `feedback-box ${isCorrect ? "correct" : "wrong"}`;
     feedbackBox.textContent = isCorrect
       ? `回答正确：${describeChoice(shown)}${describeReviewOutcome(outcome, question.id)}`
-      : `回答错误：你选了 ${describeChoice(shown)}，正确答案是 ${answer ? describeChoice(toShownLabel(answer)) : "未识别"}`;
+      : `回答错误：你选了 ${describeChoice(shown)}，正确答案是 ${answer ? describeChoice(toShownLabel(answer)) : "未识别"}${describeRepeatedPick(question.id, selected)}`;
   feedbackBox.classList.remove("hidden");
   revealAnswer(true);
   if (isCorrect) {
@@ -951,6 +1025,7 @@ function revealAnswer(fromScoring) {
   if (!currentQuestion) return;
   answerContent.classList.remove("hidden");
   setAnswerLocked(true);
+  if (currentQuestion.kind === "choice") renderPickHistory(currentQuestion);
   if (!fromScoring && !answeredThisRound && currentQuestion.kind === "choice") {
     feedbackBox.className = "feedback-box wrong";
     const answer = normalizeAnswer(currentQuestion.answerText);
@@ -1567,6 +1642,7 @@ function renderQuestionLedger() {
           <span>${question.section || "未标注"}</span>
         </div>
         <p>${preview}${preview.length >= 88 ? "..." : ""}</p>
+        ${renderLedgerPicks(question)}
       </div>
       <div class="ledger-metrics">
         <span>见 ${progress.seen}</span>
