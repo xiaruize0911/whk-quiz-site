@@ -70,6 +70,7 @@ const defaultProgress = {
   sequenceCursor: {},
   shuffledCursor: {},
   shuffledOrder: {},
+  shuffleOptions: false,
   answerDrafts: {},
   dailyLog: {},
   activeView: "practice",
@@ -98,6 +99,7 @@ const materialContent = document.getElementById("material-content");
 const promptContent = document.getElementById("prompt-content");
 const choiceWrapper = document.getElementById("choice-wrapper");
 const optionsRaw = document.getElementById("options-raw");
+const shuffleOptionsToggle = document.getElementById("shuffle-options-toggle");
 const inputWrapper = document.getElementById("input-wrapper");
 const subjectiveInput = document.getElementById("subjective-input");
 const subjectiveActions = document.getElementById("subjective-actions");
@@ -167,6 +169,7 @@ const imageZoomImg = document.getElementById("image-zoom-img");
 const imageZoomClose = document.getElementById("image-zoom-close");
 
 let currentQuestion = null;
+let choiceOrder = null; // paper letters in on-screen order when options are shuffled
 let answeredThisRound = false;
 // Once the answer is on screen the question is locked: no picking an option, no editing the typed answer.
 let answerRevealed = false;
@@ -297,6 +300,16 @@ function bindEvents() {
     button.addEventListener("click", () => applyModeChange({ order: button.dataset.order }));
   });
   restartRoundBtn.addEventListener("click", restartShuffleRound);
+  shuffleOptionsToggle.checked = Boolean(state.shuffleOptions);
+  shuffleOptionsToggle.addEventListener("change", () => {
+    state.shuffleOptions = shuffleOptionsToggle.checked;
+    persist();
+    // An unanswered question is laid out again at once; an answered one keeps its order.
+    if (currentQuestion?.kind === "choice" && !answeredThisRound && !answerRevealed) {
+      renderChoiceQuestion(currentQuestion, splitChoiceContent(currentQuestion).optionsHtml);
+      renderKeyboardHelp();
+    }
+  });
   setupOffline();
   sidebarOpenBtn.addEventListener("click", () => setSidebarOpen(true));
   sidebarCloseBtn.addEventListener("click", () => setSidebarOpen(false));
@@ -719,19 +732,69 @@ function openNextQuestion(forceQuestion = null) {
 
 function renderChoiceQuestion(question, optionsHtml) {
   const optionMap = getQuestionOptions(question, optionsHtml);
+  const labels = Object.keys(optionMap);
+  const bodies = Object.fromEntries(labels.map((label) => [label, stripOptionLabel(optionMap[label], label)]));
+  choiceOrder = state.shuffleOptions && canShuffleOptions(bodies) ? shuffleOptionOrder(labels, bodies) : null;
   optionsRaw.classList.remove("answered");
-  optionsRaw.innerHTML = Object.keys(optionMap)
-    .map((label) => `
-      <div class="option-choice" role="button" tabindex="0" data-choice-label="${label}">
+  // With shuffled options the letters follow the position on screen; data-original-label is
+  // the paper's letter, which grading, the answer and the analysis use.
+  optionsRaw.innerHTML = labels
+    .map((label, index) => {
+      const original = choiceOrder ? choiceOrder[index] : label;
+      const origin = original !== label ? `<span class="option-origin">原${original}</span>` : "";
+      return `
+      <div class="option-choice" role="button" tabindex="0" data-choice-label="${label}" data-original-label="${original}">
         <span class="option-badge">${label}</span>
-        <div class="option-body rich-block">${stripOptionLabel(optionMap[label], label)}</div>
-      </div>`)
+        <div class="option-body rich-block">${bodies[original]}</div>${origin}
+      </div>`;
+    })
     .join("");
+  renderOptionOrderNote();
   enhanceRichContent(optionsRaw);
-  const bodies = Array.from(optionsRaw.querySelectorAll(".option-body"));
-  const pictureOnly = bodies.length > 0
-    && bodies.every((body) => !body.textContent.trim() && body.querySelector('img[alt^="选项"]'));
+  const bodyNodes = Array.from(optionsRaw.querySelectorAll(".option-body"));
+  const pictureOnly = bodyNodes.length > 0
+    && bodyNodes.every((body) => !body.textContent.trim() && body.querySelector('img[alt^="选项"]'));
   optionsRaw.classList.toggle("picture-options", pictureOnly);
+}
+
+// Options that are only a letter (the real choices sit in a table in the stem) can't move.
+function canShuffleOptions(bodies) {
+  const values = Object.values(bodies);
+  return values.length > 1 && values.every((html) => /<img\b/i.test(html) || stripHtml(html).replace(/^[A-G]$/, ""));
+}
+
+// 「以上说法都不正确」 and the like only make sense where the paper put them.
+function shuffleOptionOrder(labels, bodies) {
+  const pinned = labels.map((label) => /^(以上|上述)/.test(stripHtml(bodies[label])));
+  const movable = labels.filter((label, index) => !pinned[index]);
+  if (movable.length < 2) return null;
+  let shuffled = shuffleArray(movable);
+  while (shuffled.every((label, index) => label === movable[index])) shuffled = shuffleArray(movable);
+  return labels.map((label, index) => (pinned[index] ? label : shuffled.shift()));
+}
+
+function toOriginalLabel(label) {
+  const option = optionsRaw.querySelector(`[data-choice-label="${label}"]`);
+  return option?.dataset.originalLabel || label;
+}
+
+function toShownLabel(original) {
+  const option = optionsRaw.querySelector(`[data-original-label="${original}"]`);
+  return option?.dataset.choiceLabel || original;
+}
+
+// "C" when the options are in the paper's order, "C（原A）" when they were shuffled.
+function describeChoice(shown) {
+  const original = toOriginalLabel(shown);
+  return original === shown ? shown : `${shown}（原${original}）`;
+}
+
+function renderOptionOrderNote() {
+  answerContent.querySelector(".option-order-note")?.remove();
+  if (!choiceOrder) return;
+  const pairs = choiceOrder.map((original, index) => `${String.fromCharCode(65 + index)}＝原${original}`).join("　");
+  answerContent.insertAdjacentHTML("afterbegin",
+    `<p class="option-order-note"><strong>选项已打乱</strong>${pairs}。下面的答案和解析按原卷字母。</p>`);
 }
 
 function stripOptionLabel(html, label) {
@@ -755,10 +818,11 @@ function handleOptionClick(event) {
   gradeChoice(currentQuestion, option.dataset.choiceLabel);
 }
 
+// Both letters are the paper's (original) ones.
 function markChoiceOptions(answer, selected = "") {
   optionsRaw.classList.add("answered");
   optionsRaw.querySelectorAll("[data-choice-label]").forEach((option) => {
-    const label = option.dataset.choiceLabel;
+    const label = option.dataset.originalLabel;
     option.classList.toggle("correct", label === answer);
     option.classList.toggle("wrong", Boolean(selected) && label === selected && label !== answer);
   });
@@ -847,17 +911,20 @@ function keyToChoiceLabel(key) {
   return numericMap[normalized] || "";
 }
 
-function gradeChoice(question, selected) {
+// `shown` is the letter on screen; with shuffled options it differs from the paper's.
+function gradeChoice(question, shown) {
   if (answeredThisRound || answerRevealed) return;
+  if (!optionsRaw.querySelector(`[data-choice-label="${shown}"]`)) return;
   const answer = normalizeAnswer(question.answerText);
+  const selected = toOriginalLabel(shown);
   const isCorrect = answer === selected;
   answeredThisRound = true;
   markChoiceOptions(answer, selected);
   const outcome = updateProgress(question.id, isCorrect);
     feedbackBox.className = `feedback-box ${isCorrect ? "correct" : "wrong"}`;
     feedbackBox.textContent = isCorrect
-      ? `回答正确：${selected}${describeReviewOutcome(outcome, question.id)}`
-      : `回答错误：你选了 ${selected}，正确答案是 ${answer || "未识别"}`;
+      ? `回答正确：${describeChoice(shown)}${describeReviewOutcome(outcome, question.id)}`
+      : `回答错误：你选了 ${describeChoice(shown)}，正确答案是 ${answer ? describeChoice(toShownLabel(answer)) : "未识别"}`;
   feedbackBox.classList.remove("hidden");
   revealAnswer(true);
   if (isCorrect) {
@@ -873,7 +940,8 @@ function revealAnswer(fromScoring) {
   setAnswerLocked(true);
   if (!fromScoring && !answeredThisRound && currentQuestion.kind === "choice") {
     feedbackBox.className = "feedback-box wrong";
-    feedbackBox.textContent = `正确答案：${normalizeAnswer(currentQuestion.answerText) || "未识别"}`;
+    const answer = normalizeAnswer(currentQuestion.answerText);
+    feedbackBox.textContent = `正确答案：${answer ? describeChoice(toShownLabel(answer)) : "未识别"}`;
     feedbackBox.classList.remove("hidden");
     markChoiceOptions(normalizeAnswer(currentQuestion.answerText));
   }

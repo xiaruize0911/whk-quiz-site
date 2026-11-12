@@ -19,7 +19,7 @@
         if (theme.mode) document.documentElement.dataset.mode = theme.mode;
       } catch (error) {}
     </script>
-    <link rel="stylesheet" href="./styles.css?v=20261111a" />
+    <link rel="stylesheet" href="./styles.css?v=20261112a" />
     <script>
       window.MathJax = {
         loader: { load: ["[tex]/mathtools"] },
@@ -103,6 +103,15 @@
             <span id="shuffle-round-text" class="shuffle-round-text"></span>
             <button id="restart-round-btn" class="ghost-btn" type="button">重新开始一轮</button>
           </div>
+        </section>
+
+        <section class="sidebar-section">
+          <h2>选项</h2>
+          <label class="switch-row" title="选择题的选项每次随机排列，字母跟着位置走；答完后标出原卷字母">
+            <input id="shuffle-options-toggle" type="checkbox" role="switch" />
+            <span class="switch-track" aria-hidden="true"></span>
+            <span>打乱选择题选项</span>
+          </label>
         </section>
       </aside>
 
@@ -278,6 +287,6 @@
     </div>
 
     <script src="./data/questions.js?v=20261111b"></script>
-    <script src="./app.js?v=20261111b"></script>
+    <script src="./app.js?v=20261112a"></script>
   </body>
 </html>
