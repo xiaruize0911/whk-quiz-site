@@ -71,6 +71,7 @@ const defaultProgress = {
   shuffledCursor: {},
   shuffledOrder: {},
   shuffleOptions: false,
+  optionOrders: {},
   answerDrafts: {},
   dailyLog: {},
   activeView: "practice",
@@ -734,7 +735,13 @@ function renderChoiceQuestion(question, optionsHtml) {
   const optionMap = getQuestionOptions(question, optionsHtml);
   const labels = Object.keys(optionMap);
   const bodies = Object.fromEntries(labels.map((label) => [label, stripOptionLabel(optionMap[label], label)]));
-  choiceOrder = state.shuffleOptions && canShuffleOptions(bodies) ? shuffleOptionOrder(labels, bodies) : null;
+  choiceOrder = state.shuffleOptions && canShuffleOptions(bodies)
+    ? shuffleOptionOrder(labels, bodies, state.optionOrders?.[question.id])
+    : null;
+  if (choiceOrder) {
+    state.optionOrders = { ...state.optionOrders, [question.id]: choiceOrder.join("") };
+    persist();
+  }
   optionsRaw.classList.remove("answered");
   // With shuffled options the letters follow the position on screen; data-original-label is
   // the paper's letter, which grading, the answer and the analysis use.
@@ -763,14 +770,20 @@ function canShuffleOptions(bodies) {
   return values.length > 1 && values.every((html) => /<img\b/i.test(html) || stripHtml(html).replace(/^[A-G]$/, ""));
 }
 
+// Every time a question shows up its options come in a new order: never the one it had last
+// time (`previous`, kept per question across visits and reloads), and never the paper's own.
 // 「以上说法都不正确」 and the like only make sense where the paper put them.
-function shuffleOptionOrder(labels, bodies) {
+function shuffleOptionOrder(labels, bodies, previous = "") {
   const pinned = labels.map((label) => /^(以上|上述)/.test(stripHtml(bodies[label])));
   const movable = labels.filter((label, index) => !pinned[index]);
   if (movable.length < 2) return null;
-  let shuffled = shuffleArray(movable);
-  while (shuffled.every((label, index) => label === movable[index])) shuffled = shuffleArray(movable);
-  return labels.map((label, index) => (pinned[index] ? label : shuffled.shift()));
+  const build = (shuffled) => labels.map((label, index) => (pinned[index] ? label : shuffled.shift()));
+  const original = labels.join("");
+  let order;
+  do {
+    order = build(shuffleArray(movable));
+  } while (order.join("") === previous || (order.join("") === original && movable.length > 2));
+  return order;
 }
 
 function toOriginalLabel(label) {
