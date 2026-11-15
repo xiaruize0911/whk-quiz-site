@@ -19,7 +19,7 @@
         if (theme.mode) document.documentElement.dataset.mode = theme.mode;
       } catch (error) {}
     </script>
-    <link rel="stylesheet" href="./styles.css?v=20261115b" />
+    <link rel="stylesheet" href="./styles.css?v=20261115c" />
     <script>
       window.MathJax = {
         loader: { load: ["[tex]/mathtools"] },
@@ -167,6 +167,7 @@
           </div>
 
           <div id="input-wrapper" class="input-wrapper hidden">
+            <button id="extra-answer-btn" class="ghost-btn extra-answer-btn" type="button">＋ 写其余作答</button>
             <label id="input-label" class="input-label" for="subjective-input">作答区</label>
             <textarea id="subjective-input" class="subjective-input" placeholder="在这里输入答案，显示答案后自行对照批改。"></textarea>
           </div>
@@ -291,7 +292,7 @@
       <img id="image-zoom-img" alt="" />
     </div>
 
-    <script src="./data/questions.js?v=20261111b"></script>
-    <script src="./app.js?v=20261115b"></script>
+    <script src="./data/questions.js?v=20261115c"></script>
+    <script src="./app.js?v=20261115c"></script>
   </body>
 </html>

@@ -28,7 +28,7 @@ const ROUND_ORDERS = ["shuffled", "sequential"]; // the orders that go through t
 const ORDER_LABELS = { random: "随机", sprint: "冲刺", "wrong-priority": "错题优先", shuffled: "乱序不重复", sequential: "顺序" };
 
 const STAGE_LABELS = { mastered: "已背牢", scheduled: "复习中", due: "待复习", new: "未做" };
-const ANALYSIS_VERSION = "20261111b";
+const ANALYSIS_VERSION = "20261115c";
 const analysisBundles = {};
 let mathQueue = Promise.resolve();
 // Which slice of the wrong book the 进度 page lists: all, due, or a tier key.
@@ -108,6 +108,7 @@ const shuffleOptionsToggle = document.getElementById("shuffle-options-toggle");
 const inputWrapper = document.getElementById("input-wrapper");
 const subjectiveInput = document.getElementById("subjective-input");
 const inputLabel = document.getElementById("input-label");
+const extraAnswerBtn = document.getElementById("extra-answer-btn");
 const subjectiveActions = document.getElementById("subjective-actions");
 const feedbackBox = document.getElementById("feedback-box");
 const answerContent = document.getElementById("answer-content");
@@ -279,6 +280,10 @@ function bindEvents() {
     if (!currentQuestion) return;
     state.answerDrafts[currentQuestion.id] = subjectiveInput.value;
     persist();
+  });
+  extraAnswerBtn.addEventListener("click", () => {
+    inputWrapper.classList.add("extra-open");
+    subjectiveInput.focus();
   });
   [materialContent, promptContent].forEach((container) => {
     container.addEventListener("input", handleBlankInput);
@@ -792,8 +797,11 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
   enhanceRichContent(answerContent);
   answerContent.classList.add("hidden");
   subjectiveInput.value = state.answerDrafts[currentQuestion.id] || "";
+  // With blanks to fill in place the big box is rarely needed: it stays behind a link unless
+  // something was already written in it.
   inputWrapper.classList.toggle("has-blanks", blankCount > 0);
-  inputLabel.textContent = blankCount ? `其余作答（题目里的 ${blankCount} 处横线可以直接填写）` : "作答区";
+  inputWrapper.classList.toggle("extra-open", Boolean(subjectiveInput.value));
+  inputLabel.textContent = blankCount ? "其余作答（没有横线的小问）" : "作答区";
   feedbackBox.classList.add("hidden");
   feedbackBox.textContent = "";
   feedbackBox.className = "feedback-box hidden";
@@ -1151,6 +1159,7 @@ function setAnswerLocked(locked) {
   getBlankInputs().forEach((input) => {
     input.readOnly = locked;
   });
+  inputWrapper.classList.toggle("is-locked", locked);
   const hasBlanks = inputWrapper.classList.contains("has-blanks");
   subjectiveInput.placeholder = locked
     ? "答案已显示，不能再作答。"
@@ -1276,7 +1285,8 @@ function handleBlankKeydown(event) {
   const inputs = getBlankInputs();
   const next = inputs[inputs.indexOf(input) + 1];
   if (next) next.focus();
-  else subjectiveInput.focus();
+  else if (subjectiveInput.offsetParent) subjectiveInput.focus();
+  else input.blur();
 }
 
 // result: true (全对), "partial" (部分对) or false (不会/错).
@@ -3164,7 +3174,7 @@ function splitMaterialFromPrompt(promptHtml, question = null) {
   const questionIndex = blocks.findIndex((node, index) => {
     if (index === 0) return false;
     const text = stripHtml(node.outerHTML || "");
-    return /^\s*(?:[\(（]\s*[\)）]?\s*)?\d+\s*[\.．、]/.test(text)
+    return /^\s*(?:[\(（]\s*[\)）]?\s*)?\d+(?:\s*[–-]\s*\d+)?\s*[\.．、]/.test(text)
       || /^(What|Which|Why|How|Who|When|Where)\b/i.test(text);
   });
   if (questionIndex > 0) {
@@ -3239,6 +3249,33 @@ function migrateMode(progress) {
     if (topic && !progress.topicsBySubject[subject]) progress.topicsBySubject[subject] = [topic];
   });
   delete progress.topicBySubject;
+  // 短文填空 used to be one question per blank (english-149 … english-168); each passage is now
+  // one question under its first blank's id. Old per-blank records would only mislead.
+  if (progress.fillMergeVersion !== 1) {
+    const stale = new Set(Array.from({ length: 20 }, (_, index) => `english-${149 + index}`));
+    const keep = (id) => !stale.has(id);
+    Object.keys(progress.stats || {}).filter((id) => stale.has(id)).forEach((id) => delete progress.stats[id]);
+    ["answerDrafts", "blankDrafts", "optionOrders"].forEach((field) => {
+      Object.keys(progress[field] || {}).filter((id) => stale.has(id)).forEach((id) => delete progress[field][id]);
+    });
+    progress.wrongBook = (progress.wrongBook || []).filter(keep);
+    progress.recentQueue = (progress.recentQueue || []).filter(keep);
+    const history = progress.questionHistory || [];
+    progress.questionHistory = history.filter(keep);
+    progress.historyCursor = Math.min(progress.historyCursor ?? -1, progress.questionHistory.length - 1);
+    Object.entries(progress.shuffledOrder || {}).forEach(([key, order]) => {
+      const cursor = (progress.shuffledCursor || {})[key] || 0;
+      progress.shuffledCursor[key] = order.slice(0, cursor).filter(keep).length;
+      progress.shuffledOrder[key] = order.filter(keep);
+    });
+    Object.values(progress.roundStats || {}).forEach((byKey) => {
+      Object.values(byKey).forEach((round) => {
+        Object.keys(round.results || {}).filter((id) => stale.has(id)).forEach((id) => delete round.results[id]);
+      });
+    });
+    if (stale.has(progress.currentQuestionId)) progress.currentQuestionId = null;
+    progress.fillMergeVersion = 1;
+  }
   return progress;
 }
 
