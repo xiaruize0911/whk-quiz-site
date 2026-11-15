@@ -1047,7 +1047,9 @@ function markBlankChoice(question) {
 // When the answer is shown, every blank gets its key next to what was typed, green when they
 // match. Matching ignores case and spacing; "(should) be included" accepts both forms, "a/an" either.
 function blankAnswerVariants(answer) {
-  return String(answer).split(/\s*[\/／]\s*|\s+或\s+/).flatMap((part) => {
+  // Formulas are compared in the form they're typed: \(\dfrac{1}{4}\) as 1/4.
+  // A slash only separates alternatives between words (who/that), never in a fraction like 1/4.
+  return latexToPlainText(String(answer)).split(/\s*／\s*|(?<=[A-Za-z\u4e00-\u9fff])\s*\/\s*(?=[A-Za-z\u4e00-\u9fff])|\s+或\s+/).flatMap((part) => {
     const optional = part.replace(/[（(]([^）)]*)[）)]/g, "$1");
     const without = part.replace(/[（(][^）)]*[）)]/g, "");
     return [optional, without];
@@ -1088,22 +1090,32 @@ function markBlankAnswers(question) {
   const key = getBlankKey(question, inputs);
   if (!key.length) return;
   let right = 0;
+  let checked = 0;
   inputs.forEach((input, index) => {
     input.parentNode.querySelector(`.blank-key[data-for="${index}"]`)?.remove();
+    if (!key[index]) return; // the key says nothing for this blank
+    checked += 1;
     const typed = normalizeBlankText(input.value);
-    const ok = Boolean(typed) && blankAnswerVariants(key[index]).includes(typed);
+    // Formulas and numbers also match without spaces: [-3,+∞) for [-3, +∞).
+    const loose = (value) => (/[a-z]{2}/.test(value) ? value : value.replace(/ /g, ""));
+    const ok = Boolean(typed) && blankAnswerVariants(key[index]).some((variant) => variant === typed || loose(variant) === loose(typed));
     if (ok) right += 1;
     input.classList.toggle("is-ok", ok);
     input.classList.toggle("is-bad", Boolean(typed) && !ok);
     const mark = document.createElement("span");
     mark.className = `blank-key ${ok ? "ok" : typed ? "bad" : "missed"}`;
     mark.dataset.for = String(index);
-    mark.textContent = ok ? "✓" : key[index];
+    // Keys are text with formulas in \( \); MathJax typesets them below.
+    mark.innerHTML = ok ? "✓" : escapeHtml(key[index]);
     input.after(mark);
   });
+  if (key.some((answer) => answer.includes("\\("))) {
+    typesetMath(materialContent);
+    typesetMath(promptContent);
+  }
   answerContent.querySelector(".blank-check")?.remove();
   answerContent.insertAdjacentHTML("afterbegin",
-    `<p class="blank-check"><strong>横线核对</strong>对 ${right}/${key.length} 空。按答案原文比对（不计大小写和标点），近义写法或小错请自己判断，再在下面自评。</p>`);
+    `<p class="blank-check"><strong>横线核对</strong>对 ${right}/${checked} 空。按答案原文比对（不计大小写和标点），近义写法或小错请自己判断，再在下面自评。</p>`);
 }
 
 // Options that are only a letter (the real choices sit in a table in the stem) can't move.
