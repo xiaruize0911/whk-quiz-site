@@ -75,6 +75,7 @@ const defaultProgress = {
   shuffleOptions: false,
   optionOrders: {},
   answerDrafts: {},
+  blankDrafts: {},
   dailyLog: {},
   activeView: "practice",
 };
@@ -83,6 +84,7 @@ const state = loadProgress();
 delete state.aiGrades;
 delete state.aiExplanations;
 state.answerDrafts = state.answerDrafts || {};
+state.blankDrafts = state.blankDrafts || {};
 state.dailyLog = state.dailyLog || {};
 if (!["ledger", "wrongbook", "answer-review"].includes(state.activeView)) state.activeView = "practice";
 
@@ -105,6 +107,7 @@ const optionsRaw = document.getElementById("options-raw");
 const shuffleOptionsToggle = document.getElementById("shuffle-options-toggle");
 const inputWrapper = document.getElementById("input-wrapper");
 const subjectiveInput = document.getElementById("subjective-input");
+const inputLabel = document.getElementById("input-label");
 const subjectiveActions = document.getElementById("subjective-actions");
 const feedbackBox = document.getElementById("feedback-box");
 const answerContent = document.getElementById("answer-content");
@@ -276,6 +279,10 @@ function bindEvents() {
     if (!currentQuestion) return;
     state.answerDrafts[currentQuestion.id] = subjectiveInput.value;
     persist();
+  });
+  [materialContent, promptContent].forEach((container) => {
+    container.addEventListener("input", handleBlankInput);
+    container.addEventListener("keydown", handleBlankKeydown);
   });
   drillWrongBtn.addEventListener("click", () => {
     switchView("practice");
@@ -686,6 +693,9 @@ function resetCurrentSubjectProgress() {
       delete state.answerDrafts[id];
     }
   });
+  Object.keys(state.blankDrafts).forEach((id) => {
+    if (subjectQuestionIds.has(id)) delete state.blankDrafts[id];
+  });
 
   delete state.sequenceCursor[subject];
   Object.values(state.roundStats || {}).forEach((byKey) => {
@@ -776,11 +786,14 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
   promptContent.innerHTML = annotateClozeBlanks(materialSplit.promptHtml, currentQuestion) || "<p>题面缺失</p>";
   answerContent.innerHTML = buildAnswerPanel(currentQuestion);
   fillAnalysis(answerContent.querySelector(".analysis-slot"), currentQuestion);
+  const blankCount = currentQuestion.kind === "choice" ? 0 : insertBlankInputs(currentQuestion);
   enhanceRichContent(materialContent);
   enhanceRichContent(promptContent);
   enhanceRichContent(answerContent);
   answerContent.classList.add("hidden");
   subjectiveInput.value = state.answerDrafts[currentQuestion.id] || "";
+  inputWrapper.classList.toggle("has-blanks", blankCount > 0);
+  inputLabel.textContent = blankCount ? `其余作答（题目里的 ${blankCount} 处横线可以直接填写）` : "作答区";
   feedbackBox.classList.add("hidden");
   feedbackBox.textContent = "";
   feedbackBox.className = "feedback-box hidden";
@@ -1135,9 +1148,135 @@ function setAnswerLocked(locked) {
   answerRevealed = locked;
   subjectiveInput.readOnly = locked;
   subjectiveInput.classList.toggle("locked", locked);
+  getBlankInputs().forEach((input) => {
+    input.readOnly = locked;
+  });
+  const hasBlanks = inputWrapper.classList.contains("has-blanks");
   subjectiveInput.placeholder = locked
     ? "答案已显示，不能再作答。"
-    : "在这里输入答案，显示答案后自行对照批改。";
+    : hasBlanks
+      ? "没有横线的小问写在这里，显示答案后自行对照批改。"
+      : "在这里输入答案，显示答案后自行对照批改。";
+}
+
+// ===== 横线处直接作答 =====
+// Blanks in a subjective question's text become inputs in place: runs of underscores, empty
+// <u>　　</u> / <u> ▲ </u> marks and 「[ ]」 for 标号. The question stays one question; its
+// answers are kept together in state.blankDrafts[id], in the order the blanks appear.
+// English 短文填空 lists the whole passage under every blank and bolds the blank the question
+// is about: only that one gets an input.
+const BLANK_UNDERSCORES = /_{2,}/g;
+const BLANK_BRACKETS = /(^|[^\\])\[[\s\u00a0\u3000]+\]/g;
+const MATH_SPANS = /\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/g;
+
+function insertBlankInputs(question) {
+  const containers = [materialContent, promptContent];
+  const marks = containers.flatMap((container) => [...container.querySelectorAll("u")])
+    .filter((node) => /^[\s\u00a0\u3000▲]*\d*[\s\u00a0\u3000▲]*$/.test(node.textContent) && node.textContent.length > 0 && !node.querySelector("img"));
+  const bolded = marks.filter((node) => node.closest("strong, b"));
+  if (bolded.length) {
+    bolded.forEach((node) => node.replaceWith(makeBlankInput(node.textContent)));
+  } else {
+    marks.forEach((node) => node.replaceWith(makeBlankInput(node.textContent)));
+    containers.forEach(replaceTextBlanks);
+  }
+  const inputs = getBlankInputs();
+  const saved = state.blankDrafts[question.id] || [];
+  inputs.forEach((input, index) => {
+    input.dataset.blankIndex = String(index);
+    input.setAttribute("aria-label", `第 ${index + 1} 空`);
+    input.value = saved[index] || "";
+    fitBlankInput(input);
+  });
+  return inputs.length;
+}
+
+function replaceTextBlanks(container) {
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach((node) => {
+    const source = node.nodeValue;
+    if (!/_{2}|\[/.test(source)) return;
+    // Formulas are still LaTeX text here; a node whose \( \) don't pair up is left alone.
+    const opens = (source.match(/\\[(\[]/g) || []).length;
+    const closes = (source.match(/\\[)\]]/g) || []).length;
+    if (opens !== closes) return;
+    const math = [...source.matchAll(MATH_SPANS)].map((match) => [match.index, match.index + match[0].length]);
+    const inMath = (index) => math.some(([start, end]) => index >= start && index < end);
+    const blanks = [];
+    for (const match of source.matchAll(BLANK_UNDERSCORES)) {
+      const end = match.index + match[0].length;
+      // 「在______上填文字」 explains how to answer; it is not a blank.
+      if (inMath(match.index) || /^\s*上填/.test(source.slice(end))) continue;
+      blanks.push({ start: match.index, end, text: match[0] });
+    }
+    for (const match of source.matchAll(BLANK_BRACKETS)) {
+      const start = match.index + match[1].length;
+      const end = match.index + match[0].length;
+      if (inMath(start) || /^\s*中填/.test(source.slice(end))) continue;
+      blanks.push({ start, end, text: "[]", bracket: true });
+    }
+    if (!blanks.length) return;
+    blanks.sort((a, b) => a.start - b.start);
+    const fragment = document.createDocumentFragment();
+    let last = 0;
+    blanks.forEach((blank) => {
+      if (blank.start < last) return;
+      fragment.append(source.slice(last, blank.start));
+      if (blank.bracket) {
+        fragment.append("[", makeBlankInput("", 2), "]");
+      } else {
+        fragment.append(makeBlankInput(blank.text));
+      }
+      last = blank.end;
+    });
+    fragment.append(source.slice(last));
+    node.replaceWith(fragment);
+  });
+}
+
+// The input starts about as wide as the blank on paper and grows with what is typed.
+function makeBlankInput(markText, minWidth = 0) {
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "blank-input";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  const number = (markText.match(/\d+/) || [""])[0];
+  if (number) input.placeholder = number;
+  const paperWidth = Math.round(markText.replace(/[^_\u3000\s\u00a0▲]/g, "").length * 0.5);
+  input.dataset.minWidth = String(Math.min(12, Math.max(minWidth || 3, paperWidth)));
+  return input;
+}
+
+function fitBlankInput(input) {
+  const typed = [...input.value].reduce((sum, char) => sum + (/[\u2e80-\uffff]/.test(char) ? 1.05 : 0.6), 0);
+  input.style.width = `${Math.max(Number(input.dataset.minWidth) || 3, typed + 1.2)}em`;
+}
+
+function getBlankInputs() {
+  return [...materialContent.querySelectorAll(".blank-input"), ...promptContent.querySelectorAll(".blank-input")];
+}
+
+function handleBlankInput(event) {
+  const input = event.target.closest?.(".blank-input");
+  if (!input || !currentQuestion) return;
+  fitBlankInput(input);
+  state.blankDrafts[currentQuestion.id] = getBlankInputs().map((item) => item.value);
+  if (state.blankDrafts[currentQuestion.id].every((value) => !value)) delete state.blankDrafts[currentQuestion.id];
+  persist();
+}
+
+// Enter moves on to the next blank, like Tab.
+function handleBlankKeydown(event) {
+  const input = event.target.closest?.(".blank-input");
+  if (!input || event.key !== "Enter" || event.isComposing) return;
+  event.preventDefault();
+  const inputs = getBlankInputs();
+  const next = inputs[inputs.indexOf(input) + 1];
+  if (next) next.focus();
+  else subjectiveInput.focus();
 }
 
 // result: true (全对), "partial" (部分对) or false (不会/错).
