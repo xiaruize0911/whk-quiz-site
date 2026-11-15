@@ -2,22 +2,22 @@
 // Every file the site needs is saved under the exact URL the page asks for (app.js?v=…), so a
 // saved page only ever pairs with its own scripts and data. A new deploy gets a new VERSION;
 // files whose content did not change are copied from the old cache instead of downloaded again.
-const VERSION = "1b0f7835bcb7";
+const VERSION = "0b1b7dbe9d0d";
 const CACHE = `whk-quiz-${VERSION}`;
 const PRECACHE = [
-  ["index.html", "6156e6fd01d0", 15703],
-  ["./", "6156e6fd01d0", 15703],
-  ["app.js?v=20261115c", "369ca1342503", 137972],
-  ["styles.css?v=20261115c", "fd0cd9fd5754", 67169],
+  ["index.html", "66c173048aa9", 15975],
+  ["./", "66c173048aa9", 15975],
+  ["app.js?v=20261115d", "0b441198309a", 150274],
+  ["styles.css?v=20261115d", "7292b40501fa", 70276],
   ["manifest.webmanifest", "26ebc6b56980", 668],
   ["favicon.ico", "6f68a67725b1", 5190],
-  ["data/questions.js?v=20261115c", "efd3ad80ec72", 1798268],
-  ["data/analysis/biology.json?v=20261115c", "5bef2db77cde", 642100],
-  ["data/analysis/chemistry.json?v=20261115c", "64fa57a855b0", 357507],
-  ["data/analysis/chinese.json?v=20261115c", "d638f11409fa", 152286],
-  ["data/analysis/english.json?v=20261115c", "c3073d6eaf49", 432297],
-  ["data/analysis/math.json?v=20261115c", "0016192ce708", 366559],
-  ["data/analysis/physics.json?v=20261115c", "c5a2249a4fdb", 255358],
+  ["data/questions.js?v=20261115d", "88489da413de", 1758338],
+  ["data/analysis/biology.json?v=20261115d", "5bef2db77cde", 642100],
+  ["data/analysis/chemistry.json?v=20261115d", "64fa57a855b0", 357507],
+  ["data/analysis/chinese.json?v=20261115d", "d638f11409fa", 152286],
+  ["data/analysis/english.json?v=20261115d", "397aa1b592e4", 422278],
+  ["data/analysis/math.json?v=20261115d", "0016192ce708", 366559],
+  ["data/analysis/physics.json?v=20261115d", "c5a2249a4fdb", 255358],
   ["data/assets/biology/image001.jpg", "b7b4b1f20b61", 7391],
   ["data/assets/biology/image002.png", "ecdb0f874d33", 15277],
   ["data/assets/biology/image003.png", "a09dd7331610", 12017],

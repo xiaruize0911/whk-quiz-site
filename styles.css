@@ -3655,3 +3655,171 @@ mjx-container[jax="CHTML"][display="true"] {
 .input-wrapper.has-blanks:not(.extra-open) .subjective-input {
   display: none;
 }
+
+/* ===== 七选五：选项填进空里 ===== */
+.blank-slot {
+  display: inline;
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px dashed var(--accent);
+  background: var(--accent-soft);
+  color: var(--ink);
+  cursor: pointer;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  line-height: 1.9;
+}
+
+.blank-slot:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+.blank-slot.active {
+  border-style: solid;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.blank-slot.filled {
+  border-style: solid;
+}
+
+.blank-slot.active.filled .slot-tag {
+  background: var(--on-accent);
+  color: var(--accent);
+}
+
+.slot-tag {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 0.8em;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.blank-slot.filled .slot-tag {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.blank-slot.revealed {
+  cursor: default;
+  border-style: solid;
+}
+
+.blank-slot.is-ok,
+.blank-slot.is-shown {
+  border-color: var(--success);
+  background: var(--success-soft);
+}
+
+.blank-slot.is-ok .slot-tag,
+.blank-slot.is-shown .slot-tag {
+  background: var(--success);
+  color: var(--surface);
+}
+
+.blank-slot.is-bad {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.blank-slot.is-bad .slot-tag {
+  background: var(--danger);
+  color: var(--surface);
+}
+
+.option-slot {
+  flex: none;
+  align-self: center;
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.option-list.blank-choice .option-choice.used:not(.correct):not(.wrong) {
+  opacity: 0.6;
+}
+
+.option-choice.correct .option-slot {
+  background: var(--success);
+  color: var(--surface);
+}
+
+.option-choice.wrong .option-slot,
+.option-list.answered .option-choice:not(.correct) .option-slot {
+  background: var(--surface-3);
+  color: var(--muted);
+}
+
+.blank-choice-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.blank-choice-bar.is-locked {
+  display: none;
+}
+
+.blank-choice-status {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+/* ===== 短文填空：答案显示在空里 ===== */
+.blank-input.is-ok {
+  border-bottom-color: var(--success);
+  background: var(--success-soft);
+}
+
+.blank-input.is-bad {
+  border-bottom-color: var(--danger);
+  background: var(--danger-soft);
+  text-decoration: line-through;
+  text-decoration-color: var(--danger);
+}
+
+.blank-key {
+  display: inline-block;
+  margin: 0 0.25em 0 -0.1em;
+  padding: 0 0.4em;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 0.92em;
+  line-height: 1.6;
+}
+
+.blank-key.ok {
+  color: var(--success);
+}
+
+.blank-key.bad,
+.blank-key.missed {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.blank-check {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: 0.86rem;
+}
+
+.blank-check strong {
+  margin-right: 8px;
+}

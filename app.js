@@ -28,7 +28,7 @@ const ROUND_ORDERS = ["shuffled", "sequential"]; // the orders that go through t
 const ORDER_LABELS = { random: "随机", sprint: "冲刺", "wrong-priority": "错题优先", shuffled: "乱序不重复", sequential: "顺序" };
 
 const STAGE_LABELS = { mastered: "已背牢", scheduled: "复习中", due: "待复习", new: "未做" };
-const ANALYSIS_VERSION = "20261115c";
+const ANALYSIS_VERSION = "20261115d";
 const analysisBundles = {};
 let mathQueue = Promise.resolve();
 // Which slice of the wrong book the 进度 page lists: all, due, or a tier key.
@@ -109,6 +109,9 @@ const inputWrapper = document.getElementById("input-wrapper");
 const subjectiveInput = document.getElementById("subjective-input");
 const inputLabel = document.getElementById("input-label");
 const extraAnswerBtn = document.getElementById("extra-answer-btn");
+const blankChoiceBar = document.getElementById("blank-choice-bar");
+const blankChoiceStatus = document.getElementById("blank-choice-status");
+const blankSubmitBtn = document.getElementById("blank-submit-btn");
 const subjectiveActions = document.getElementById("subjective-actions");
 const feedbackBox = document.getElementById("feedback-box");
 const answerContent = document.getElementById("answer-content");
@@ -178,6 +181,8 @@ const imageZoomImg = document.getElementById("image-zoom-img");
 const imageZoomClose = document.getElementById("image-zoom-close");
 
 let currentQuestion = null;
+let blankPicks = []; // 七选五: the letter put into each blank so far ("" = empty)
+let activeBlank = 0;
 let choiceOrder = null; // paper letters in on-screen order when options are shuffled
 let answeredThisRound = false;
 // Once the answer is on screen the question is locked: no picking an option, no editing the typed answer.
@@ -339,7 +344,17 @@ function bindEvents() {
     if (!option || !currentQuestion) return;
     event.preventDefault();
     event.stopPropagation();
-    gradeChoice(currentQuestion, option.dataset.choiceLabel);
+    chooseOption(option.dataset.choiceLabel);
+  });
+  blankSubmitBtn.addEventListener("click", () => gradeBlankChoice(currentQuestion));
+  [materialContent, promptContent].forEach((container) => {
+    container.addEventListener("click", handleBlankSlotClick);
+    container.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      if (!event.target.closest?.(".blank-slot")) return;
+      event.preventDefault();
+      handleBlankSlotClick(event);
+    });
   });
 }
 
@@ -471,7 +486,9 @@ function renderKeyboardHelp() {
   keyboardHelp.classList.toggle("hidden", !state.showShortcuts);
   if (!state.showShortcuts || !currentQuestion) return;
   const keys = [["←", "上一题"], ["→ / Space", "下一题"]];
-  if (currentQuestion.kind === "choice") {
+  if (isBlankChoice(currentQuestion)) {
+    keys.push([`1-${blankPicks.length}`, "选空"], ["A-G", "填入选项"], ["Enter", "提交"]);
+  } else if (currentQuestion.kind === "choice") {
     const labels = Array.from(optionsRaw.querySelectorAll("[data-choice-label]")).map((node) => node.dataset.choiceLabel);
     const count = labels.length || (currentQuestion.optionLabels || []).length || 4;
     keys.push([`A-${String.fromCharCode(64 + count)} / 1-${count}`, "选择选项"]);
@@ -777,7 +794,10 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
         promptHtml: `${currentQuestion.promptHtml || ""}${currentQuestion.optionsHtml || ""}`,
         optionsHtml: "",
       };
-  const materialSplit = splitMaterialFromPrompt(choiceContent.promptHtml || "", currentQuestion);
+  // A 七选五 passage is the question itself: keep it whole, blanks and all.
+  const materialSplit = isBlankChoice(currentQuestion)
+    ? { materialHtml: "", promptHtml: choiceContent.promptHtml || "" }
+    : splitMaterialFromPrompt(choiceContent.promptHtml || "", currentQuestion);
   const materialHtml = annotateClozeBlanks(materialSplit.materialHtml, currentQuestion);
   materialContent.innerHTML = materialHtml
     ? `<p class="material-label">材料</p><div class="rich-block">${materialHtml}</div>`
@@ -839,7 +859,7 @@ function renderChoiceQuestion(question, optionsHtml) {
   const optionMap = getQuestionOptions(question, optionsHtml);
   const labels = Object.keys(optionMap);
   const bodies = Object.fromEntries(labels.map((label) => [label, stripOptionLabel(optionMap[label], label)]));
-  choiceOrder = state.shuffleOptions && canShuffleOptions(bodies)
+  choiceOrder = state.shuffleOptions && !isBlankChoice(question) && canShuffleOptions(bodies)
     ? shuffleOptionOrder(labels, bodies, state.optionOrders?.[question.id])
     : null;
   if (choiceOrder) {
@@ -866,6 +886,199 @@ function renderChoiceQuestion(question, optionsHtml) {
   const pictureOnly = bodyNodes.length > 0
     && bodyNodes.every((body) => !body.textContent.trim() && body.querySelector('img[alt^="选项"]'));
   optionsRaw.classList.toggle("picture-options", pictureOnly);
+  setupBlankChoice(question);
+}
+
+// ===== 七选五：选项填进空里 =====
+// A 七选五 passage is one choice question: blankAnswers holds the key blank by blank. Click a
+// blank (or press its number), then an option (or its letter); each option goes into one
+// blank at most. The chosen sentence shows in the blank, and after 提交 / 显示答案 every blank
+// shows the right sentence with what was picked.
+function isBlankChoice(question) {
+  return question?.kind === "choice" && Boolean(question.blankAnswers?.length);
+}
+
+function getBlankSlots() {
+  const slots = [];
+  [materialContent, promptContent].forEach((container) => {
+    container.querySelectorAll(".cloze-blank[data-blank]").forEach((node) => {
+      const index = Number(node.dataset.blank) - 1;
+      if (!slots[index]) slots[index] = node;
+    });
+  });
+  return slots;
+}
+
+function setupBlankChoice(question) {
+  const active = isBlankChoice(question);
+  blankChoiceBar.classList.toggle("hidden", !active);
+  optionsRaw.classList.toggle("blank-choice", active);
+  if (!active) return;
+  const count = question.blankAnswers.length;
+  getBlankSlots().forEach((slot, index) => {
+    slot.classList.add("blank-slot");
+    slot.setAttribute("role", "button");
+    slot.tabIndex = 0;
+    slot.dataset.slot = String(index);
+  });
+  const saved = state.blankDrafts[question.id] || [];
+  blankPicks = Array.from({ length: count }, (_, index) => saved[index] || "");
+  activeBlank = Math.max(0, blankPicks.indexOf(""));
+  renderBlankChoice();
+}
+
+function getOptionText(label) {
+  const body = optionsRaw.querySelector(`[data-choice-label="${label}"] .option-body`);
+  return body ? body.textContent.trim() : "";
+}
+
+function renderBlankChoice() {
+  const locked = answeredThisRound || answerRevealed;
+  getBlankSlots().forEach((slot, index) => {
+    const pick = blankPicks[index];
+    slot.classList.toggle("filled", Boolean(pick));
+    slot.classList.toggle("active", !locked && index === activeBlank);
+    slot.innerHTML = pick
+      ? `<span class="slot-tag">${index + 1} · ${pick}</span><span class="slot-text">${escapeHtml(getOptionText(pick))}</span>`
+      : `<span class="slot-tag">第 ${index + 1} 空</span>`;
+  });
+  optionsRaw.querySelectorAll("[data-choice-label]").forEach((option) => {
+    option.querySelector(".option-slot")?.remove();
+    const index = blankPicks.indexOf(option.dataset.choiceLabel);
+    option.classList.toggle("used", index >= 0);
+    if (index >= 0) option.querySelector(".option-body").insertAdjacentHTML("afterend", `<span class="option-slot">第 ${index + 1} 空</span>`);
+  });
+  const filled = blankPicks.filter(Boolean).length;
+  const left = blankPicks.length - filled;
+  blankChoiceStatus.textContent = locked
+    ? ""
+    : `已填 ${filled}/${blankPicks.length} 空 · 正在填第 ${activeBlank + 1} 空（点空格换位置，再点一次清空）`;
+  blankSubmitBtn.disabled = locked || left > 0;
+  blankSubmitBtn.textContent = locked ? "已提交" : left ? `还差 ${left} 空` : "提交答案";
+  blankChoiceBar.classList.toggle("is-locked", locked);
+}
+
+function setActiveBlank(index) {
+  if (answeredThisRound || answerRevealed) return;
+  activeBlank = index;
+  renderBlankChoice();
+}
+
+function handleBlankSlotClick(event) {
+  const slot = event.target.closest?.(".blank-slot");
+  if (!slot || !isBlankChoice(currentQuestion) || answeredThisRound || answerRevealed) return;
+  const index = Number(slot.dataset.slot);
+  if (index === activeBlank && blankPicks[index]) {
+    blankPicks[index] = "";
+    saveBlankPicks();
+  }
+  setActiveBlank(index);
+}
+
+function placeBlankChoice(label) {
+  if (answeredThisRound || answerRevealed || !optionsRaw.querySelector(`[data-choice-label="${label}"]`)) return;
+  const elsewhere = blankPicks.indexOf(label);
+  if (elsewhere >= 0) blankPicks[elsewhere] = "";
+  blankPicks[activeBlank] = label;
+  // Move on to the next empty blank after this one, wrapping round.
+  const order = blankPicks.map((_, offset) => (activeBlank + 1 + offset) % blankPicks.length);
+  const next = order.find((index) => !blankPicks[index]);
+  if (next !== undefined) activeBlank = next;
+  saveBlankPicks();
+  renderBlankChoice();
+}
+
+function saveBlankPicks() {
+  if (blankPicks.some(Boolean)) state.blankDrafts[currentQuestion.id] = [...blankPicks];
+  else delete state.blankDrafts[currentQuestion.id];
+  persist();
+}
+
+function gradeBlankChoice(question) {
+  if (!isBlankChoice(question) || answeredThisRound || answerRevealed || blankPicks.some((pick) => !pick)) return;
+  const key = question.blankAnswers;
+  const right = blankPicks.filter((pick, index) => pick === key[index]).length;
+  const result = right === key.length ? true : right > 0 ? "partial" : false;
+  answeredThisRound = true;
+  recordPick(question.id, blankPicks.join(""), right === key.length, right);
+  const outcome = updateProgress(question.id, result);
+  const misses = key
+    .map((answer, index) => (blankPicks[index] === answer ? "" : `第 ${index + 1} 空选了 ${blankPicks[index]}，应为 ${answer}`))
+    .filter(Boolean);
+  feedbackBox.className = `feedback-box ${result === true ? "correct" : result === "partial" ? "partial" : "wrong"}`;
+  feedbackBox.textContent = result === true
+    ? `全部答对：${blankPicks.join(" ")}${describeReviewOutcome(outcome, question.id)}`
+    : `答对 ${right}/${key.length} 空：${misses.join("；")}，已加入错题本`;
+  feedbackBox.classList.remove("hidden");
+  revealAnswer(true);
+  if (result === true) queueAutoNext();
+  else scrollAnswerIntoView();
+}
+
+// After 提交 or 显示答案: each blank shows the right sentence and how it was answered;
+// options in the key are marked with their blank, wrong picks in red.
+function markBlankChoice(question) {
+  const key = question.blankAnswers;
+  const submitted = answeredThisRound;
+  getBlankSlots().forEach((slot, index) => {
+    const answer = key[index];
+    const pick = submitted ? blankPicks[index] : "";
+    const status = !submitted ? "shown" : pick === answer ? "ok" : "bad";
+    slot.classList.remove("active", "filled");
+    slot.classList.add("revealed", `is-${status}`);
+    const note = status === "ok" ? " ✓" : status === "bad" ? `（你选 ${pick}）` : "";
+    slot.innerHTML = `<span class="slot-tag">${index + 1} · ${answer}${note}</span><span class="slot-text">${escapeHtml(getOptionText(answer))}</span>`;
+  });
+  optionsRaw.classList.add("answered");
+  optionsRaw.querySelectorAll("[data-choice-label]").forEach((option) => {
+    const label = option.dataset.choiceLabel;
+    const index = key.indexOf(label);
+    option.querySelector(".option-slot")?.remove();
+    option.classList.remove("used");
+    option.classList.toggle("correct", index >= 0);
+    option.classList.toggle("wrong", submitted && index < 0 && blankPicks.includes(label));
+    const tag = index >= 0 ? `第 ${index + 1} 空` : "多余";
+    option.querySelector(".option-body").insertAdjacentHTML("afterend", `<span class="option-slot">${tag}</span>`);
+  });
+  blankChoiceBar.classList.add("is-locked");
+}
+
+// ===== 短文填空：答案显示在空里 =====
+// When the answer is shown, every blank gets its key next to what was typed, green when they
+// match. Matching ignores case and spacing; "(should) be included" accepts both forms, "a/an" either.
+function blankAnswerVariants(answer) {
+  return String(answer).split(/\s*[\/／]\s*|\s+或\s+/).flatMap((part) => {
+    const optional = part.replace(/[（(]([^）)]*)[）)]/g, "$1");
+    const without = part.replace(/[（(][^）)]*[）)]/g, "");
+    return [optional, without];
+  }).map(normalizeBlankText).filter(Boolean);
+}
+
+function normalizeBlankText(value) {
+  return String(value || "").toLowerCase().replace(/[’']/g, "'").replace(/[.,;:!?。，；：！？]+$/g, "").replace(/\s+/g, " ").trim();
+}
+
+function markBlankAnswers(question) {
+  const key = question.blankAnswers || [];
+  const inputs = getBlankInputs();
+  if (!key.length || inputs.length !== key.length) return;
+  let right = 0;
+  inputs.forEach((input, index) => {
+    input.parentNode.querySelector(`.blank-key[data-for="${index}"]`)?.remove();
+    const typed = normalizeBlankText(input.value);
+    const ok = Boolean(typed) && blankAnswerVariants(key[index]).includes(typed);
+    if (ok) right += 1;
+    input.classList.toggle("is-ok", ok);
+    input.classList.toggle("is-bad", Boolean(typed) && !ok);
+    const mark = document.createElement("span");
+    mark.className = `blank-key ${ok ? "ok" : typed ? "bad" : "missed"}`;
+    mark.dataset.for = String(index);
+    mark.textContent = ok ? "✓" : key[index];
+    input.after(mark);
+  });
+  answerContent.querySelector(".blank-check")?.remove();
+  answerContent.insertAdjacentHTML("afterbegin",
+    `<p class="blank-check"><strong>横线核对</strong>对 ${right}/${key.length} 空。按答案原文比对，同义写法或拼写小错请自己判断，再在下面自评。</p>`);
 }
 
 // Options that are only a letter (the real choices sit in a table in the stem) can't move.
@@ -932,7 +1145,13 @@ function handleOptionClick(event) {
   if (!option || !currentQuestion) return;
   if ((answeredThisRound || answerRevealed) && event.target.closest("img")) return;
   event.stopPropagation();
-  gradeChoice(currentQuestion, option.dataset.choiceLabel);
+  chooseOption(option.dataset.choiceLabel);
+}
+
+// Picking an option answers an ordinary choice question, or fills the chosen blank of a 七选五.
+function chooseOption(label) {
+  if (isBlankChoice(currentQuestion)) placeBlankChoice(label);
+  else gradeChoice(currentQuestion, label);
 }
 
 // Both letters are the paper's (original) ones.
@@ -959,9 +1178,10 @@ function getPicks(questionId) {
   return state.stats[questionId]?.picks || [];
 }
 
-function recordPick(questionId, pick, ok) {
+function recordPick(questionId, pick, ok, right) {
   const progress = getProgressFor(questionId);
-  progress.picks = [...(progress.picks || []), { at: Date.now(), pick, ok }].slice(-PICKS_KEPT);
+  const item = right === undefined ? { at: Date.now(), pick, ok } : { at: Date.now(), pick, ok, right };
+  progress.picks = [...(progress.picks || []), item].slice(-PICKS_KEPT);
 }
 
 // "，这是你第 3 次选 C" once the same wrong option has been picked before.
@@ -991,14 +1211,15 @@ function renderPickHistory(question) {
   const unrecorded = Math.max(0, getAttempts(progress) - picks.length);
   if (!picks.length && !unrecorded) return;
   const right = picks.filter((item) => item.ok).length;
-  const wrongTally = tallyWrongPicks(picks);
+  const wrongTally = isBlankChoice(question) ? [] : tallyWrongPicks(picks);
+  const score = (item) => (item.right === undefined ? "" : `<span class="pick-time">${item.right}/${item.pick.length}</span>`);
   const lines = [];
   if (picks.length) {
     lines.push(`<p class="pick-summary">已记录 ${picks.length} 次：对 ${right} · 错 ${picks.length - right}${wrongTally.length ? ` <span class="pick-trap">错选 ${wrongTally.map(([label, count]) => `${label}×${count}`).join(" · ")}</span>` : ""}</p>`);
     const latest = answeredThisRound ? picks.length - 1 : -1;
     const chips = picks.map((item, index) => `
       <li class="pick-chip ${item.ok ? "ok" : "bad"}${index === latest ? " latest" : ""}">
-        <span class="pick-letter">${item.pick}</span><span class="pick-mark">${item.ok ? "✓" : "✗"}</span>
+        <span class="pick-letter">${item.pick}</span><span class="pick-mark">${item.ok ? "✓" : "✗"}</span>${score(item)}
         <span class="pick-time">${index === latest ? "本次" : formatPickTime(item.at)}</span>
       </li>`);
     lines.push(`<ol class="pick-list">${chips.join("")}</ol>`);
@@ -1013,8 +1234,11 @@ function renderPickHistory(question) {
 function renderLedgerPicks(question) {
   const picks = getPicks(question.id);
   if (question.kind !== "choice" || !picks.length) return "";
-  const recent = picks.slice(-10).map((item) => `<span class="pick-dot ${item.ok ? "ok" : "bad"}" title="${formatPickTime(item.at)}">${item.pick}${item.ok ? "✓" : "✗"}</span>`).join("");
-  const trap = tallyWrongPicks(picks)[0];
+  const recent = picks.slice(-10).map((item) => {
+    const shown = item.right === undefined ? `${item.pick}${item.ok ? "✓" : "✗"}` : `${item.right}/${item.pick.length}`;
+    return `<span class="pick-dot ${item.ok ? "ok" : "bad"}" title="${formatPickTime(item.at)} ${item.pick}">${shown}</span>`;
+  }).join("");
+  const trap = isBlankChoice(question) ? null : tallyWrongPicks(picks)[0];
   return `<div class="ledger-picks"><span class="muted">选过</span>${picks.length > 10 ? "<span class=\"muted\">…</span>" : ""}${recent}${trap && trap[1] > 1 ? `<span class="pick-trap">常错 ${trap[0]}×${trap[1]}</span>` : ""}</div>`;
 }
 
@@ -1055,6 +1279,22 @@ function handleGlobalKeydown(event) {
   if (key === " " || key === "Spacebar") {
     event.preventDefault();
     goToNextQuestion();
+    return;
+  }
+
+  if (isBlankChoice(currentQuestion)) {
+    // Letters fill the chosen blank, digits choose a blank, Enter hands the passage in.
+    const blank = Number(key);
+    if (/^[1-9]$/.test(key) && blank <= blankPicks.length) {
+      event.preventDefault();
+      setActiveBlank(blank - 1);
+    } else if (/^[a-g]$/i.test(key)) {
+      event.preventDefault();
+      placeBlankChoice(key.toUpperCase());
+    } else if (key === "Enter") {
+      event.preventDefault();
+      gradeBlankChoice(currentQuestion);
+    }
     return;
   }
 
@@ -1130,7 +1370,16 @@ function revealAnswer(fromScoring) {
   answerContent.classList.remove("hidden");
   setAnswerLocked(true);
   if (currentQuestion.kind === "choice") renderPickHistory(currentQuestion);
-  if (!fromScoring && !answeredThisRound && currentQuestion.kind === "choice") {
+  if (isBlankChoice(currentQuestion)) {
+    markBlankChoice(currentQuestion);
+    if (!fromScoring && !answeredThisRound) {
+      feedbackBox.className = "feedback-box wrong";
+      feedbackBox.textContent = `正确答案：${currentQuestion.blankAnswers.map((answer, index) => `${index + 1}．${answer}`).join("　")}`;
+      feedbackBox.classList.remove("hidden");
+    }
+  } else if (currentQuestion.kind !== "choice") {
+    markBlankAnswers(currentQuestion);
+  } else if (!fromScoring && !answeredThisRound) {
     feedbackBox.className = "feedback-box wrong";
     const answer = normalizeAnswer(currentQuestion.answerText);
     feedbackBox.textContent = `正确答案：${answer ? describeChoice(toShownLabel(answer)) : "未识别"}`;
@@ -2193,6 +2442,19 @@ function getAnswerReviewItem(question) {
       || stripHtml(question.answerHtml)
       || recoverEmbeddedAnswer(question),
   );
+  if (isBlankChoice(question)) {
+    const lines = question.blankAnswers.map((answer, index) => {
+      const optionText = cleanOptionText(answer, stripHtml(getQuestionOptions(question, splitChoiceContent(question).optionsHtml)[answer] || ""));
+      return `${index + 1}．${answer}　${optionText}`;
+    });
+    return {
+      displayAnswer: `答案：\n${lines.join("\n")}`,
+      briefPrompt: buildAnswerReviewPrompt(question),
+      keywords: buildAnswerKeywords(question),
+      options: getChoiceOptionsText(question),
+      missing: false,
+    };
+  }
   const choiceAnswer = question.kind === "choice" ? normalizeAnswer(answerText) : "";
   const choiceAnswerText = choiceAnswer ? getChoiceAnswerText(question, choiceAnswer) : "";
   const displayAnswer = choiceAnswer
@@ -3249,10 +3511,13 @@ function migrateMode(progress) {
     if (topic && !progress.topicsBySubject[subject]) progress.topicsBySubject[subject] = [topic];
   });
   delete progress.topicBySubject;
-  // 短文填空 used to be one question per blank (english-149 … english-168); each passage is now
-  // one question under its first blank's id. Old per-blank records would only mislead.
-  if (progress.fillMergeVersion !== 1) {
-    const stale = new Set(Array.from({ length: 20 }, (_, index) => `english-${149 + index}`));
+  // 短文填空 (english-149 … 168) and then 七选五 (english-169 … 178) used to be one question per
+  // blank; each passage is now one question under its first blank's id. Old per-blank records
+  // would only mislead.
+  const fillVersion = progress.fillMergeVersion || 0;
+  if (fillVersion < 2) {
+    const first = fillVersion < 1 ? 149 : 169;
+    const stale = new Set(Array.from({ length: 179 - first }, (_, index) => `english-${first + index}`));
     const keep = (id) => !stale.has(id);
     Object.keys(progress.stats || {}).filter((id) => stale.has(id)).forEach((id) => delete progress.stats[id]);
     ["answerDrafts", "blankDrafts", "optionOrders"].forEach((field) => {
@@ -3274,7 +3539,7 @@ function migrateMode(progress) {
       });
     });
     if (stale.has(progress.currentQuestionId)) progress.currentQuestionId = null;
-    progress.fillMergeVersion = 1;
+    progress.fillMergeVersion = 2;
   }
   return progress;
 }
