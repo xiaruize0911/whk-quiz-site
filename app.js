@@ -1054,14 +1054,39 @@ function blankAnswerVariants(answer) {
   }).map(normalizeBlankText).filter(Boolean);
 }
 
+// Case, spacing and punctuation don't count: 「春花秋月何时了」 matches 「春花秋月何时了？」.
 function normalizeBlankText(value) {
-  return String(value || "").toLowerCase().replace(/[’']/g, "'").replace(/[.,;:!?。，；：！？]+$/g, "").replace(/\s+/g, " ").trim();
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[.,;:!?。，、；：！？“”"‘’'《》〈〉…—]/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/([\u2e80-\uffff]) (?=[\u2e80-\uffff])/g, "$1")
+    .trim();
+}
+
+// The key blank by blank: question.blankAnswers when the data has it, otherwise a numbered
+// answer such as 名句默写's 「（1）往事知多少；（2）…」 when every blank is labelled （n） just
+// before it and the answer has exactly one item per blank. (Elsewhere （1）（2） number
+// sub-questions, which can hold several blanks or none.)
+function getBlankKey(question, inputs) {
+  const count = inputs.length;
+  if (question.blankAnswers?.length) return question.blankAnswers.length === count ? question.blankAnswers : [];
+  const labelled = inputs.every((input, index) => new RegExp(`[（(]\\s*${index + 1}\\s*[）)]\\s*$`).test(input.previousSibling?.textContent || ""));
+  if (!labelled) return [];
+  const text = stripHtml((question.answerHtml || "").split("</p>")[0]) || question.answerText || "";
+  const parts = text.split(/[（(]\s*(\d+)\s*[）)]/);
+  const items = [];
+  for (let index = 1; index < parts.length; index += 2) {
+    if (Number(parts[index]) !== items.length + 1) return [];
+    items.push(parts[index + 1].replace(/^[\s：:]+|[\s；;，,。.]+$/g, ""));
+  }
+  return items.length === count && items.every(Boolean) ? items : [];
 }
 
 function markBlankAnswers(question) {
-  const key = question.blankAnswers || [];
   const inputs = getBlankInputs();
-  if (!key.length || inputs.length !== key.length) return;
+  const key = getBlankKey(question, inputs);
+  if (!key.length) return;
   let right = 0;
   inputs.forEach((input, index) => {
     input.parentNode.querySelector(`.blank-key[data-for="${index}"]`)?.remove();
@@ -1078,7 +1103,7 @@ function markBlankAnswers(question) {
   });
   answerContent.querySelector(".blank-check")?.remove();
   answerContent.insertAdjacentHTML("afterbegin",
-    `<p class="blank-check"><strong>横线核对</strong>对 ${right}/${key.length} 空。按答案原文比对，同义写法或拼写小错请自己判断，再在下面自评。</p>`);
+    `<p class="blank-check"><strong>横线核对</strong>对 ${right}/${key.length} 空。按答案原文比对（不计大小写和标点），近义写法或小错请自己判断，再在下面自评。</p>`);
 }
 
 // Options that are only a letter (the real choices sit in a table in the stem) can't move.
@@ -1418,12 +1443,13 @@ function setAnswerLocked(locked) {
 }
 
 // ===== 横线处直接作答 =====
-// Blanks in a subjective question's text become inputs in place: runs of underscores, empty
+// Blanks in a subjective question's text become inputs in place: runs of underscores (half- or
+// full-width ＿, as in 名句默写), empty
 // <u>　　</u> / <u> ▲ </u> marks and 「[ ]」 for 标号. The question stays one question; its
 // answers are kept together in state.blankDrafts[id], in the order the blanks appear.
 // English 短文填空 lists the whole passage under every blank and bolds the blank the question
 // is about: only that one gets an input.
-const BLANK_UNDERSCORES = /_{2,}/g;
+const BLANK_UNDERSCORES = /[_＿]{2,}/g;
 const BLANK_BRACKETS = /(^|[^\\])\[[\s\u00a0\u3000]+\]/g;
 const MATH_SPANS = /\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/g;
 
@@ -1455,7 +1481,7 @@ function replaceTextBlanks(container) {
   while (walker.nextNode()) nodes.push(walker.currentNode);
   nodes.forEach((node) => {
     const source = node.nodeValue;
-    if (!/_{2}|\[/.test(source)) return;
+    if (!/[_＿]{2}|\[/.test(source)) return;
     // Formulas are still LaTeX text here; a node whose \( \) don't pair up is left alone.
     const opens = (source.match(/\\[(\[]/g) || []).length;
     const closes = (source.match(/\\[)\]]/g) || []).length;
@@ -1503,7 +1529,9 @@ function makeBlankInput(markText, minWidth = 0) {
   input.spellcheck = false;
   const number = (markText.match(/\d+/) || [""])[0];
   if (number) input.placeholder = number;
-  const paperWidth = Math.round(markText.replace(/[^_\u3000\s\u00a0▲]/g, "").length * 0.5);
+  const half = markText.replace(/[^_\s\u00a0▲]/g, "").length;
+  const full = markText.replace(/[^＿\u3000]/g, "").length;
+  const paperWidth = Math.round(half * 0.5 + full);
   input.dataset.minWidth = String(Math.min(12, Math.max(minWidth || 3, paperWidth)));
   return input;
 }
