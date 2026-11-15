@@ -3573,3 +3573,29 @@ mjx-container[jax="CHTML"][display="true"] {
 .ledger-picks .pick-trap {
   margin-left: 4px;
 }
+
+/* ===== 本轮统计 ===== */
+.round-info {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.shuffle-round-text {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.round-stats,
+.round-previous {
+  line-height: 1.45;
+}
+
+.round-previous.hidden {
+  display: none;
+}
+
+.shuffle-round .ghost-btn {
+  flex: none;
+  align-self: flex-start;
+}

@@ -23,7 +23,8 @@ const RECITATION_AUDIO = {
   语文: [{ title: "期中背诵音频", src: "media/yuwen-midterm-recitation.mp3", duration: "1:13" }],
 };
 const AUDIO_RATES = [0.75, 1, 1.25, 1.5];
-const SCOPE_LABELS = { all: "全部题", choice: "仅选择题", wrong: "只刷错题", due: "今日待复习" };
+const SCOPE_LABELS = { all: "全部题", choice: "仅选择题", subjective: "仅主观题", wrong: "只刷错题", due: "今日待复习" };
+const ROUND_ORDERS = ["shuffled", "sequential"]; // the orders that go through the range in rounds
 const ORDER_LABELS = { random: "随机", sprint: "冲刺", "wrong-priority": "错题优先", shuffled: "乱序不重复", sequential: "顺序" };
 
 const STAGE_LABELS = { mastered: "已背牢", scheduled: "复习中", due: "待复习", new: "未做" };
@@ -70,6 +71,7 @@ const defaultProgress = {
   sequenceCursor: {},
   shuffledCursor: {},
   shuffledOrder: {},
+  roundStats: { shuffled: {}, sequential: {} },
   shuffleOptions: false,
   optionOrders: {},
   answerDrafts: {},
@@ -137,6 +139,8 @@ const recitationAudio = document.getElementById("recitation-audio");
 const offlineStatus = document.getElementById("offline-status");
 const shuffleRound = document.getElementById("shuffle-round");
 const shuffleRoundText = document.getElementById("shuffle-round-text");
+const roundStatsText = document.getElementById("round-stats");
+const roundPreviousText = document.getElementById("round-previous");
 const restartRoundBtn = document.getElementById("restart-round-btn");
 const topicMastery = document.getElementById("topic-mastery");
 const markPartialBtn = document.getElementById("mark-partial-btn");
@@ -512,12 +516,86 @@ function renderTopicPicker() {
 // The range line on the question card: which 考点, which questions, in what order.
 function renderRange() {
   const count = getCurrentSubjectQuestions({ filtered: true }).length;
-  const round = getShuffleRoundProgress();
-  const order = (ORDER_LABELS[state.order] || "随机") + (round ? `（本轮 ${round.done}/${round.total}）` : "");
+  const round = getShuffleRoundProgress() || getSequentialRoundProgress();
+  const stats = round ? summarizeRound(getRoundStats()) : null;
+  const order = (ORDER_LABELS[state.order] || "随机")
+    + (round ? `（本轮 ${round.done}/${round.total}${stats.answered ? ` · 正确率 ${stats.accuracy}%` : ""}）` : "");
   const parts = [describeTopics(), `${SCOPE_LABELS[state.scope] || "全部题"} ${count} 题`, order];
   rangeBtn.textContent = `范围：${parts.join(" · ")}${isOnlyQuestionInScope() ? " · 只剩这一题" : ""}`;
   shuffleRound.classList.toggle("hidden", !round);
-  if (round) shuffleRoundText.textContent = `本轮已出 ${round.done}/${round.total} 题`;
+  if (!round) return;
+  shuffleRoundText.textContent = state.order === "shuffled"
+    ? `本轮已出 ${round.done}/${round.total} 题`
+    : `本轮第 ${round.done}/${round.total} 题`;
+  roundStatsText.textContent = stats.answered ? describeRoundStats(stats) : "本轮还没作答";
+  const previous = getRoundStats().previous;
+  roundPreviousText.textContent = previous ? `上一轮：${describeRoundStats(previous)}` : "";
+  roundPreviousText.classList.toggle("hidden", !previous);
+}
+
+// "已答 12 · 对 9 · 错 2 · 半对 1 · 正确率 79%"
+function describeRoundStats(stats) {
+  return [
+    `已答 ${stats.answered}`,
+    `对 ${stats.correct}`,
+    `错 ${stats.wrong}`,
+    stats.partial ? `半对 ${stats.partial}` : "",
+    `正确率 ${stats.accuracy}%`,
+  ].filter(Boolean).join(" · ");
+}
+
+// 乱序不重复 and 顺序 go through the range in rounds; each round of each range (subject +
+// scope + 考点, the same key as the shuffled round) counts its own answers. A question
+// answered twice in one round counts once, with its latest result.
+function getRoundKey() {
+  return getShuffleKey();
+}
+
+function getRoundStats(order = state.order, key = getRoundKey()) {
+  state.roundStats = state.roundStats || {};
+  const byOrder = state.roundStats[order] || (state.roundStats[order] = {});
+  return byOrder[key] || (byOrder[key] = { startedAt: Date.now(), results: {} });
+}
+
+function summarizeRound(round) {
+  if (!round.results) return round; // an archived round is already a summary
+  const values = Object.values(round.results);
+  const correct = values.filter((value) => value === 1).length;
+  const partial = values.filter((value) => value === 0.5).length;
+  const answered = values.length;
+  return {
+    answered,
+    correct,
+    partial,
+    wrong: answered - correct - partial,
+    accuracy: answered ? Math.round(((correct + 0.5 * partial) / answered) * 100) : 0,
+    startedAt: round.startedAt,
+  };
+}
+
+function recordRoundResult(questionId, result) {
+  if (!ROUND_ORDERS.includes(state.order)) return;
+  if (!getCurrentSubjectQuestions({ filtered: true }).some((question) => question.id === questionId)) return;
+  getRoundStats().results[questionId] = result === true ? 1 : result === "partial" ? 0.5 : 0;
+}
+
+// A new round of the current range: keep the finished one as 上一轮 (if anything was answered).
+function startNewRound(order = state.order, key = getRoundKey()) {
+  const finished = summarizeRound(getRoundStats(order, key));
+  state.roundStats[order][key] = {
+    startedAt: Date.now(),
+    results: {},
+    previous: finished.answered ? { ...finished, endedAt: Date.now() } : getRoundStats(order, key).previous,
+  };
+}
+
+// Where 顺序 has got in the current range; null in other orders.
+function getSequentialRoundProgress() {
+  if (state.order !== "sequential") return null;
+  const questions = getCurrentSubjectQuestions({ filtered: true });
+  if (!questions.length) return null;
+  const index = questions.findIndex((question) => question.id === currentQuestion?.id);
+  return { done: index + 1 || Math.min(state.sequenceCursor[state.currentSubject] || 0, questions.length), total: questions.length };
 }
 
 function openTopicDialog() {
@@ -610,6 +688,11 @@ function resetCurrentSubjectProgress() {
   });
 
   delete state.sequenceCursor[subject];
+  Object.values(state.roundStats || {}).forEach((byKey) => {
+    Object.keys(byKey).forEach((key) => {
+      if (key === subject || key.startsWith(`${subject}|`)) delete byKey[key];
+    });
+  });
   Object.keys(state.shuffledOrder).forEach((key) => {
     if (key === subject || key.startsWith(`${subject}|`)) {
       delete state.shuffledOrder[key];
@@ -1111,6 +1194,7 @@ function describeReviewOutcome(outcome, questionId) {
 // Returns what happened to the schedule: "scheduled", "cleared" (left the wrong book),
 // "mastered", "early" (right, but not due yet, so the schedule stays) or "".
 function updateProgress(questionId, result) {
+  recordRoundResult(questionId, result);
   const progress = getProgressFor(questionId);
   const today = state.dailyLog[dayKey()] || (state.dailyLog[dayKey()] = { answered: 0, correct: 0 });
   today.answered += 1;
@@ -1150,6 +1234,7 @@ function updateProgress(questionId, result) {
   }
   persist();
   renderStats();
+  renderRange();
   renderQuestionStage();
   renderQuestionLedger();
   renderWrongbook();
@@ -1394,6 +1479,7 @@ function chooseQuestion() {
   if (state.order === "sequential") {
     const cursor = state.sequenceCursor[state.currentSubject] || 0;
     const question = subjectQuestions[cursor % subjectQuestions.length] || null;
+    if (cursor % subjectQuestions.length === 0 && Object.keys(getRoundStats().results).length) startNewRound();
     state.sequenceCursor[state.currentSubject] = (cursor + 1) % subjectQuestions.length;
     return question;
   }
@@ -2470,6 +2556,7 @@ function chooseShuffledCycleQuestion(questions) {
   if (cursor >= order.length) {
     order = shuffleArray(ids);
     cursor = 0;
+    if (state.shuffledOrder[key]) startNewRound("shuffled", key);
     // A new round never starts with the question that ended the last one.
     if (order.length > 1 && order[0] === state.currentQuestionId) {
       const swap = 1 + Math.floor(Math.random() * (order.length - 1));
@@ -2492,8 +2579,18 @@ function getShuffleRoundProgress() {
 
 // Start the current range's round over: everything is new again, starting with another question.
 function restartShuffleRound() {
-  if (!window.confirm("重新打乱当前范围，从头开始新一轮？本轮已经出过的题也会再出现。")) return;
+  if (state.order === "sequential") {
+    if (!window.confirm("回到当前范围的第一题，从头开始新一轮？本轮的统计会存为「上一轮」。")) return;
+    startNewRound();
+    state.sequenceCursor[state.currentSubject] = 0;
+    setSidebarOpen(false);
+    switchView("practice");
+    openNextQuestion();
+    return;
+  }
+  if (!window.confirm("重新打乱当前范围，从头开始新一轮？本轮已经出过的题也会再出现，本轮的统计会存为「上一轮」。")) return;
   const key = getShuffleKey();
+  startNewRound("shuffled", key);
   const ids = getCurrentSubjectQuestions({ filtered: true }).map((question) => question.id);
   const order = shuffleArray(ids);
   if (order.length > 1 && order[0] === state.currentQuestionId) {
@@ -2536,6 +2633,9 @@ function filterQuestionsByMode(allQuestions, topics = getSelectedTopics()) {
   }
   if (state.scope === "choice") {
     return questions.filter((question) => question.kind === "choice");
+  }
+  if (state.scope === "subjective") {
+    return questions.filter((question) => question.kind !== "choice");
   }
   if (state.scope === "wrong") {
     const wrongIds = new Set(state.wrongBook);

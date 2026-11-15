@@ -19,7 +19,7 @@
         if (theme.mode) document.documentElement.dataset.mode = theme.mode;
       } catch (error) {}
     </script>
-    <link rel="stylesheet" href="./styles.css?v=20261112c" />
+    <link rel="stylesheet" href="./styles.css?v=20261115a" />
     <script>
       window.MathJax = {
         loader: { load: ["[tex]/mathtools"] },
@@ -85,6 +85,7 @@
           <div class="mode-stack segmented">
             <button class="mode-btn scope-btn active" data-scope="all">全部题</button>
             <button class="mode-btn scope-btn" data-scope="choice">仅选择题</button>
+            <button class="mode-btn scope-btn" data-scope="subjective">仅主观题</button>
             <button class="mode-btn scope-btn" data-scope="wrong">只刷错题</button>
             <button class="mode-btn scope-btn" data-scope="due">今日待复习</button>
           </div>
@@ -100,7 +101,11 @@
             <button class="mode-btn order-btn" data-order="sequential">顺序</button>
           </div>
           <div id="shuffle-round" class="shuffle-round hidden">
-            <span id="shuffle-round-text" class="shuffle-round-text"></span>
+            <div class="round-info">
+              <span id="shuffle-round-text" class="shuffle-round-text"></span>
+              <span id="round-stats" class="round-stats"></span>
+              <span id="round-previous" class="round-previous"></span>
+            </div>
             <button id="restart-round-btn" class="ghost-btn" type="button">重新开始一轮</button>
           </div>
         </section>
@@ -287,6 +292,6 @@
     </div>
 
     <script src="./data/questions.js?v=20261111b"></script>
-    <script src="./app.js?v=20261112c"></script>
+    <script src="./app.js?v=20261115a"></script>
   </body>
 </html>
