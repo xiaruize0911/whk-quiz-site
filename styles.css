@@ -3899,3 +3899,18 @@ mjx-container[jax="CHTML"][display="true"] {
 .blank-check strong {
   margin-right: 8px;
 }
+
+/* 过关循环: the screen once every question in the range has passed */
+.loop-done {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.loop-done p {
+  margin: 0;
+}

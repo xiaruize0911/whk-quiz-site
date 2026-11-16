@@ -25,7 +25,9 @@ const RECITATION_AUDIO = {
 const AUDIO_RATES = [0.75, 1, 1.25, 1.5];
 const SCOPE_LABELS = { all: "全部题", choice: "仅选择题", subjective: "仅主观题", wrong: "只刷错题", due: "今日待复习" };
 const ROUND_ORDERS = ["shuffled", "sequential"]; // the orders that go through the range in rounds
-const ORDER_LABELS = { random: "随机", sprint: "冲刺", "wrong-priority": "错题优先", shuffled: "乱序不重复", sequential: "顺序" };
+const ORDER_LABELS = { random: "随机", sprint: "冲刺", "wrong-priority": "错题优先", shuffled: "乱序不重复", sequential: "顺序", mastery: "过关循环" };
+// 过关循环: a question passes when it is right the first time it comes up, or once it has been right this often.
+const LOOP_PASS_RIGHTS = 2;
 
 const STAGE_LABELS = { mastered: "已背牢", scheduled: "复习中", due: "待复习", new: "未做" };
 const ANALYSIS_VERSION = "20261115d";
@@ -49,11 +51,31 @@ const PLAIN_SCRIPTS = {
   _: Object.fromEntries([..."0123456789+-"].map((ch, i) => [ch, "₀₁₂₃₄₅₆₇₈₉₊₋"[i]])),
 };
 const DAY_MS = 24 * 60 * 60 * 1000;
-// Every question is on a spaced schedule. Answering it right while due moves it one step:
-// step 0 = new or relearning, 1–3 = next review after 1/3/7 days, MASTERED_STEP = 已背牢.
-// A wrong or partial answer sends it back to step 0 and into the wrong book.
-const REVIEW_INTERVALS = [DAY_MS, 3 * DAY_MS, 7 * DAY_MS];
-const MASTERED_STEP = REVIEW_INTERVALS.length + 1;
+const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
+// Every question is on a spaced schedule, set for an exam the next day (考前计划). Answering it
+// right while due moves it one step: step 0 = new or relearning, then the next review comes
+// 10 minutes later (step 1), 1 hour later (step 2) and the next morning (step 3); passing that
+// one makes it 已背牢 (MASTERED_STEP). A wrong or partial answer sends it back to step 0 and
+// into the wrong book.
+const MASTERED_STEP = 4;
+const REVIEW_PLAN_TEXT = "答对 → 10 分钟后复习 → 1 小时后 → 明早 → 已背牢；答错从头开始";
+
+function getReviewDueAt(step, from = Date.now()) {
+  if (step === 1) return from + 10 * MINUTE_MS;
+  if (step === 2) return from + HOUR_MS;
+  return getNextMorning(from);
+}
+
+// 06:00 the next morning, but at least 3 hours away. Answered during the day (when that morning
+// is over 12 hours off), the last review comes 3 hours later instead, so it still lands before
+// the exam.
+function getNextMorning(from) {
+  const morning = new Date(from);
+  morning.setHours(6, 0, 0, 0);
+  while (morning.getTime() < from + 3 * HOUR_MS) morning.setDate(morning.getDate() + 1);
+  return morning.getTime() - from > 12 * HOUR_MS ? from + 3 * HOUR_MS : morning.getTime();
+}
 // A wrong-book question leaves the book once it has passed the 1- and 3-day reviews.
 const WRONG_CLEAR_STEP = 3;
 
@@ -85,6 +107,7 @@ delete state.aiGrades;
 delete state.aiExplanations;
 state.answerDrafts = state.answerDrafts || {};
 state.blankDrafts = state.blankDrafts || {};
+state.masteryLoops = state.masteryLoops || {};
 state.dailyLog = state.dailyLog || {};
 if (!["ledger", "wrongbook", "answer-review"].includes(state.activeView)) state.activeView = "practice";
 
@@ -545,6 +568,10 @@ function renderTopicPicker() {
 // The range line on the question card: which 考点, which questions, in what order.
 function renderRange() {
   const count = getCurrentSubjectQuestions({ filtered: true }).length;
+  if (state.order === "mastery") {
+    renderMasteryRange(count);
+    return;
+  }
   const round = getShuffleRoundProgress() || getSequentialRoundProgress();
   const stats = round ? summarizeRound(getRoundStats()) : null;
   const order = (ORDER_LABELS[state.order] || "随机")
@@ -558,6 +585,24 @@ function renderRange() {
     : `本轮第 ${round.done}/${round.total} 题`;
   roundStatsText.textContent = stats.answered ? describeRoundStats(stats) : "本轮还没作答";
   const previous = getRoundStats().previous;
+  roundPreviousText.textContent = previous ? `上一轮：${describeRoundStats(previous)}` : "";
+  roundPreviousText.classList.toggle("hidden", !previous);
+}
+
+function renderMasteryRange(count) {
+  const loop = count ? summarizeMasteryLoop() : null;
+  const order = loop ? `过关循环（已过关 ${loop.passed}/${loop.total}${loop.pass && loop.left ? ` · 第 ${loop.pass} 遍` : ""}）` : "过关循环";
+  const parts = [describeTopics(), `${SCOPE_LABELS[state.scope] || "全部题"} ${count} 题`, order];
+  rangeBtn.textContent = `范围：${parts.join(" · ")}`;
+  shuffleRound.classList.toggle("hidden", !loop);
+  if (!loop) return;
+  shuffleRoundText.textContent = loop.left
+    ? `已过关 ${loop.passed}/${loop.total} 题 · 还差 ${loop.left} 题${loop.pass ? ` · 第 ${loop.pass} 遍` : ""}`
+    : `全部 ${loop.total} 题已过关`;
+  roundStatsText.textContent = loop.answered
+    ? describeRoundStats(loop) + (loop.owing ? ` · 错过待补 ${loop.owing} 题` : "")
+    : "第一次就做对即过关；做错的题要做对 2 次";
+  const previous = getMasteryLoop().previous;
   roundPreviousText.textContent = previous ? `上一轮：${describeRoundStats(previous)}` : "";
   roundPreviousText.classList.toggle("hidden", !previous);
 }
@@ -751,6 +796,8 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
   if (!currentQuestion) {
     questionTopic.textContent = "";
     questionTitle.textContent = "当前范围没有题目：换个考点或范围，或先积累错题";
+    questionSection.textContent = "";
+    const loopDone = state.order === "mastery" && getCurrentSubjectQuestions({ filtered: true }).length > 0;
     renderRange();
     promptContent.innerHTML = "";
     choiceWrapper.classList.add("hidden");
@@ -760,6 +807,8 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
     answerContent.classList.add("hidden");
     materialContent.classList.add("hidden");
     materialContent.innerHTML = "";
+    practiceView.classList.remove("material-beside");
+    if (loopDone) renderMasteryDone();
     renderQuestionStage();
     renderNavButtons();
     return;
@@ -1010,8 +1059,8 @@ function gradeBlankChoice(question) {
     .filter(Boolean);
   feedbackBox.className = `feedback-box ${result === true ? "correct" : result === "partial" ? "partial" : "wrong"}`;
   feedbackBox.textContent = result === true
-    ? `全部答对：${blankPicks.join(" ")}${describeReviewOutcome(outcome, question.id)}`
-    : `答对 ${right}/${key.length} 空：${misses.join("；")}，已加入错题本`;
+    ? `全部答对：${blankPicks.join(" ")}${describeReviewOutcome(outcome, question.id)}${describeLoopNote(question.id)}`
+    : `答对 ${right}/${key.length} 空：${misses.join("；")}，已加入错题本${describeLoopNote(question.id)}`;
   feedbackBox.classList.remove("hidden");
   revealAnswer(true);
   if (result === true) queueAutoNext();
@@ -1394,8 +1443,8 @@ function gradeChoice(question, shown) {
   const outcome = updateProgress(question.id, isCorrect);
     feedbackBox.className = `feedback-box ${isCorrect ? "correct" : "wrong"}`;
     feedbackBox.textContent = isCorrect
-      ? `回答正确：${describeChoice(shown)}${describeReviewOutcome(outcome, question.id)}`
-      : `回答错误：你选了 ${describeChoice(shown)}，正确答案是 ${answer ? describeChoice(toShownLabel(answer)) : "未识别"}${describeRepeatedPick(question.id, selected)}`;
+      ? `回答正确：${describeChoice(shown)}${describeReviewOutcome(outcome, question.id)}${describeLoopNote(question.id)}`
+      : `回答错误：你选了 ${describeChoice(shown)}，正确答案是 ${answer ? describeChoice(toShownLabel(answer)) : "未识别"}${describeRepeatedPick(question.id, selected)}${describeLoopNote(question.id)}`;
   feedbackBox.classList.remove("hidden");
   revealAnswer(true);
   if (isCorrect) {
@@ -1592,7 +1641,7 @@ function selfMark(result) {
     correct: `已记为全对${describeReviewOutcome(outcome, currentQuestion.id)}`,
     partial: "已记为部分对，加入错题本，今天再练一次",
     wrong: "已记为不会，加入错题本，今天再练一次",
-  }[tone];
+  }[tone] + describeLoopNote(currentQuestion.id);
   feedbackBox.classList.remove("hidden");
   revealAnswer(true);
   if (result === true) {
@@ -1636,6 +1685,7 @@ function describeReviewOutcome(outcome, questionId) {
 // "mastered", "early" (right, but not due yet, so the schedule stays) or "".
 function updateProgress(questionId, result) {
   recordRoundResult(questionId, result);
+  recordLoopResult(questionId, result);
   const progress = getProgressFor(questionId);
   const today = state.dailyLog[dayKey()] || (state.dailyLog[dayKey()] = { answered: 0, correct: 0 });
   today.answered += 1;
@@ -1648,7 +1698,7 @@ function updateProgress(questionId, result) {
     if (advancing) {
       progress.reviewStep = Math.min(MASTERED_STEP, (progress.reviewStep || 0) + 1);
       const mastered = progress.reviewStep >= MASTERED_STEP;
-      progress.dueAt = mastered ? 0 : Date.now() + REVIEW_INTERVALS[progress.reviewStep - 1];
+      progress.dueAt = mastered ? 0 : getReviewDueAt(progress.reviewStep);
       outcome = mastered ? "mastered" : "scheduled";
       if (progress.reviewStep >= WRONG_CLEAR_STEP && state.wrongBook.includes(questionId)) {
         progress.reviewLevel = 0;
@@ -1933,6 +1983,10 @@ function chooseQuestion() {
     return chooseSprintQuestion(subjectQuestions);
   }
 
+  if (state.order === "mastery") {
+    return chooseMasteryQuestion(subjectQuestions);
+  }
+
   const weighted = subjectQuestions.map((question) => {
     const progress = getProgressFor(question.id);
     let weight = 1;
@@ -2060,7 +2114,7 @@ function renderQuestionStage() {
   const step = Math.min(progress.reviewStep || 0, MASTERED_STEP);
   const dots = Array.from({ length: MASTERED_STEP }, (_, index) => `<i class="${index < step ? "on" : ""}"></i>`).join("");
   questionStage.className = `question-stage is-${stage}`;
-  questionStage.title = "答对 → 1 天后复习 → 3 天后 → 7 天后 → 已背牢；答错从头开始";
+  questionStage.title = `考前计划：${REVIEW_PLAN_TEXT}`;
   questionStage.innerHTML = `<span class="stage-dots">${dots}</span>${escapeHtml(describeMemoryStage(progress))}`;
 }
 
@@ -2122,7 +2176,7 @@ function renderProgressOverview() {
     </div>
     <div class="stage-legend">
       ${["mastered", "scheduled", "due", "new"].map((stage) => `<span><i class="stage-${stage}"></i>${STAGE_LABELS[stage]}</span>`).join("")}
-      <span class="muted">每题答对后 1 / 3 / 7 天各复习一次，全部通过即已背牢</span>
+      <span class="muted">考前计划：每题答对后 10 分钟、1 小时、明早各复习一次，全部通过即已背牢</span>
     </div>`;
   progressOverview.querySelectorAll("[data-subject]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -2746,6 +2800,9 @@ function renderNavButtons() {
 }
 
 function canGoNext() {
+  if (state.order === "mastery") {
+    return Boolean(currentQuestion) && getCurrentSubjectQuestions({ filtered: true }).length > 0;
+  }
   if (state.order === "sequential") {
     return Boolean(findSequentialNeighbor(1));
   }
@@ -2844,7 +2901,7 @@ function getWrongTier(level) {
       short: "高危",
       title: "红色高危",
       label: "错 3 次以上",
-      hint: "答对后隔 1 天、3 天各复习一次，三轮都答对即移出。",
+      hint: "答对后隔 10 分钟、1 小时各复习一次，三轮都答对即移出。",
     };
   }
   if (level === 2) {
@@ -2853,7 +2910,7 @@ function getWrongTier(level) {
       short: "重点",
       title: "重点复刷",
       label: "错 2 次",
-      hint: "答对后隔 1 天、3 天各复习一次，三轮都答对即移出。",
+      hint: "答对后隔 10 分钟、1 小时各复习一次，三轮都答对即移出。",
     };
   }
   if (level === 1) {
@@ -2862,7 +2919,7 @@ function getWrongTier(level) {
       short: "普通",
       title: "普通错题",
       label: "错 1 次",
-      hint: "答对后隔 1 天、3 天各复习一次，三轮都答对即移出。",
+      hint: "答对后隔 10 分钟、1 小时各复习一次，三轮都答对即移出。",
     };
   }
   return {
@@ -2943,7 +3000,7 @@ function renderWrongbook() {
         ${filters.filter((filter) => filter.key === "all" || filter.count).map((filter) => `
           <button class="wrong-filter tier-${filter.key}${filter.key === active.key ? " active" : ""}" data-wrong-filter="${filter.key}">${filter.label}<span>${filter.count}</span></button>`).join("")}
       </div>
-      <p class="muted">答对后隔 1 天、3 天再复习，连续 ${WRONG_CLEAR_STEP} 轮答对自动移出</p>
+      <p class="muted">答对后隔 10 分钟、1 小时再复习，连续 ${WRONG_CLEAR_STEP} 轮答对自动移出</p>
     </div>
     <ol class="wrong-list">${rows}</ol>
     ${shown.length > limit ? `<p class="muted wrong-more">还有 ${shown.length - limit} 题没列出，点「只刷错题」逐题练习。</p>` : ""}`;
@@ -2975,10 +3032,16 @@ function handleWrongbookClick(event) {
 }
 
 function formatReviewDue(progress) {
-  const remaining = (progress.dueAt || 0) - Date.now();
+  const now = Date.now();
+  const remaining = (progress.dueAt || 0) - now;
   if (remaining <= 0) return "现在复习";
-  const days = Math.ceil(remaining / DAY_MS);
-  return days <= 1 ? "明天复习" : `${days} 天后复习`;
+  if (remaining < HOUR_MS) return `${Math.max(1, Math.ceil(remaining / MINUTE_MS))} 分钟后复习`;
+  const due = new Date(progress.dueAt);
+  const time = `${due.getHours()}:${String(due.getMinutes()).padStart(2, "0")}`;
+  const days = Math.round((new Date(due).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / DAY_MS);
+  if (days === 0) return `今天 ${time} 复习`;
+  if (days === 1) return `${due.getHours() < 12 ? "明早" : "明天"} ${time} 复习`;
+  return `${days} 天后复习`;
 }
 
 function cleanupWrongBook() {
@@ -3033,6 +3096,10 @@ function getShuffleRoundProgress() {
 
 // Start the current range's round over: everything is new again, starting with another question.
 function restartShuffleRound() {
+  if (state.order === "mastery") {
+    restartMasteryLoop();
+    return;
+  }
   if (state.order === "sequential") {
     if (!window.confirm("回到当前范围的第一题，从头开始新一轮？本轮的统计会存为「上一轮」。")) return;
     startNewRound();
@@ -3056,6 +3123,118 @@ function restartShuffleRound() {
   setSidebarOpen(false);
   switchView("practice");
   openNextQuestion();
+}
+
+// 过关循环: rounds over the range until every question has passed, i.e. was right the first time
+// it came up in this loop, or (after a miss) has been right LOOP_PASS_RIGHTS times. Each pass
+// shuffles the questions still to pass and goes through them once; questions that join the range
+// mid-pass (a new wrong-book entry) are added to the end of the pass. Each range keeps its loop.
+function getMasteryLoop(key = getShuffleKey()) {
+  return state.masteryLoops[key] || (state.masteryLoops[key] = newMasteryLoop());
+}
+
+function newMasteryLoop(previous = null) {
+  return { startedAt: Date.now(), pass: 0, order: [], cursor: 0, items: {}, answered: 0, correct: 0, partial: 0, previous };
+}
+
+function chooseMasteryQuestion(questions) {
+  const loop = getMasteryLoop();
+  const ids = questions.map((question) => question.id);
+  const left = new Set(ids.filter((id) => !loop.items[id]?.passed));
+  if (!left.size) return null;
+  if (loop.pass) {
+    ids.forEach((id) => {
+      if (left.has(id) && !loop.order.includes(id)) loop.order.push(id);
+    });
+  }
+  let index = loop.order.findIndex((id, position) => position >= loop.cursor && left.has(id));
+  if (index < 0) {
+    loop.pass += 1;
+    loop.order = shuffleArray([...left]);
+    // A new pass doesn't start with the question just answered.
+    if (loop.order.length > 1 && loop.order[0] === state.currentQuestionId) {
+      const swap = 1 + Math.floor(Math.random() * (loop.order.length - 1));
+      [loop.order[0], loop.order[swap]] = [loop.order[swap], loop.order[0]];
+    }
+    index = 0;
+  }
+  loop.cursor = index + 1;
+  return questions.find((question) => question.id === loop.order[index]) || null;
+}
+
+// Only answers on the practice page count, and only for questions in the loop's range.
+function recordLoopResult(questionId, result) {
+  if (state.order !== "mastery" || state.activeView !== "practice") return;
+  if (!getCurrentSubjectQuestions({ filtered: true }).some((question) => question.id === questionId)) return;
+  const loop = getMasteryLoop();
+  const item = loop.items[questionId] || (loop.items[questionId] = { tries: 0, right: 0 });
+  if (item.passed) return;
+  item.tries += 1;
+  loop.answered += 1;
+  if (result === true) {
+    item.right += 1;
+    loop.correct += 1;
+    if (item.tries === 1 || item.right >= LOOP_PASS_RIGHTS) item.passed = true;
+  } else if (result === "partial") {
+    loop.partial += 1;
+  }
+}
+
+function summarizeMasteryLoop() {
+  const loop = getMasteryLoop();
+  const ids = getCurrentSubjectQuestions({ filtered: true }).map((question) => question.id);
+  const items = ids.map((id) => loop.items[id]).filter(Boolean);
+  const passed = items.filter((item) => item.passed).length;
+  const wrong = loop.answered - loop.correct - loop.partial;
+  return {
+    total: ids.length,
+    passed,
+    left: ids.length - passed,
+    firstTry: items.filter((item) => item.passed && item.tries === 1).length,
+    owing: items.filter((item) => !item.passed && item.tries > 0).length,
+    pass: loop.pass,
+    answered: loop.answered,
+    correct: loop.correct,
+    partial: loop.partial,
+    wrong,
+    accuracy: loop.answered ? Math.round(((loop.correct + 0.5 * loop.partial) / loop.answered) * 100) : 0,
+    startedAt: loop.startedAt,
+  };
+}
+
+// The 过关循环 line added to the feedback after an answer.
+function describeLoopNote(questionId) {
+  if (state.order !== "mastery" || state.activeView !== "practice") return "";
+  const item = getMasteryLoop().items[questionId];
+  if (!item) return "";
+  if (item.passed) return item.tries === 1 ? "。过关循环：第一次就做对，这题过关" : `。过关循环：已做对 ${item.right} 次，这题过关`;
+  const owed = LOOP_PASS_RIGHTS - item.right;
+  return `。过关循环：这题还要再做对 ${owed} 次`;
+}
+
+function restartMasteryLoop({ ask = true } = {}) {
+  const summary = summarizeMasteryLoop();
+  if (ask && summary.answered && !window.confirm("清空当前范围的过关记录，从头开始新一轮？本轮的统计会存为「上一轮」。")) return;
+  const key = getShuffleKey();
+  const previous = summary.answered ? { ...summary, endedAt: Date.now() } : getMasteryLoop(key).previous;
+  state.masteryLoops[key] = newMasteryLoop(previous);
+  setSidebarOpen(false);
+  switchView("practice");
+  openNextQuestion();
+}
+
+// Shown in place of a question once every question in the range has passed.
+function renderMasteryDone() {
+  const loop = summarizeMasteryLoop();
+  const minutes = Math.max(1, Math.round((Date.now() - loop.startedAt) / MINUTE_MS));
+  questionTitle.textContent = `过关循环完成：${loop.total} 题全部过关`;
+  promptContent.innerHTML = `
+    <div class="loop-done">
+      <p>${loop.firstTry} 题第一次就做对${loop.total > loop.firstTry ? `，${loop.total - loop.firstTry} 题错过后又做对了 ${LOOP_PASS_RIGHTS} 次` : ""}；用时 ${minutes < 120 ? `${minutes} 分钟` : `${Math.round(minutes / 60)} 小时`}。</p>
+      <p>${escapeHtml(describeRoundStats(loop))}</p>
+      <button class="primary-btn" type="button" data-loop-restart>再来一轮</button>
+    </div>`;
+  promptContent.querySelector("[data-loop-restart]").addEventListener("click", () => restartMasteryLoop({ ask: false }));
 }
 
 // The whole subject keeps the key it had before rounds were split by scope.
@@ -3568,7 +3747,7 @@ function migrateMode(progress) {
   delete progress.mode;
   // Before every question had a schedule, only wrong-book questions did: start the others
   // that were already answered right at their first (1-day) review.
-  if (progress.scheduleVersion !== 2) {
+  if ((progress.scheduleVersion || 0) < 2) {
     Object.entries(progress.stats || {}).forEach(([id, stat]) => {
       if ((stat.correct || 0) > 0 && !(stat.reviewStep > 0) && !(progress.wrongBook || []).includes(id)) {
         stat.reviewStep = 1;
@@ -3576,6 +3755,16 @@ function migrateMode(progress) {
       }
     });
     progress.scheduleVersion = 2;
+  }
+  // 考前计划: reviews set under the old 1 / 3 / 7-day plan come due on the new, shorter one.
+  if (progress.scheduleVersion < 3) {
+    Object.values(progress.stats || {}).forEach((stat) => {
+      const step = stat.reviewStep || 0;
+      if (step >= 1 && step < MASTERED_STEP && stat.dueAt > 0) {
+        stat.dueAt = Math.min(stat.dueAt, getReviewDueAt(step, stat.lastSeenAt || Date.now()));
+      }
+    });
+    progress.scheduleVersion = 3;
   }
   // One 考点 per subject became a list: [] (or every topic) means the whole subject.
   progress.topicsBySubject = progress.topicsBySubject || {};
