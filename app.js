@@ -744,6 +744,9 @@ function openQuestion(question, { recordSeen = true, pushHistory = true } = {}) 
   clearAutoNext();
   currentQuestion = question;
   answeredThisRound = false;
+  // Every visit starts blank: nothing written, filled in or placed last time comes back.
+  state.answerDrafts = {};
+  state.blankDrafts = {};
   setAnswerLocked(false);
   if (!currentQuestion) {
     questionTopic.textContent = "";
