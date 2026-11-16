@@ -2,13 +2,13 @@
 // Every file the site needs is saved under the exact URL the page asks for (app.js?v=…), so a
 // saved page only ever pairs with its own scripts and data. A new deploy gets a new VERSION;
 // files whose content did not change are copied from the old cache instead of downloaded again.
-const VERSION = "d6e0332ac58e";
+const VERSION = "2ab8ced862d9";
 const CACHE = `whk-quiz-${VERSION}`;
 const PRECACHE = [
-  ["index.html", "886c0e596463", 15975],
-  ["./", "886c0e596463", 15975],
-  ["app.js?v=20261116a", "68ccdadf6e37", 152577],
-  ["styles.css?v=20261115d", "7292b40501fa", 70276],
+  ["index.html", "9daafa71a374", 15975],
+  ["./", "9daafa71a374", 15975],
+  ["app.js?v=20261116b", "c6de1d3fb856", 154013],
+  ["styles.css?v=20261116b", "9033b50b1a80", 71884],
   ["manifest.webmanifest", "26ebc6b56980", 668],
   ["favicon.ico", "6f68a67725b1", 5190],
   ["data/questions.js?v=20261116a", "dcd6e3ad77a1", 1774384],

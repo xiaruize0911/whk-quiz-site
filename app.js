@@ -3288,9 +3288,38 @@ function chooseOptionLabelSequence(matches) {
 }
 
 function enhanceRichContent(container) {
+  prepareTables(container);
   renderMathScripts(container);
   markFormulaImages(container);
   typesetMath(container);
+}
+
+// Tables whose cells hold sentences (阅读 A's calligraphy schools) are hard to read squeezed
+// into a narrow column (a phone, or the passage column beside the questions), so there they
+// stack: one card per row, each cell headed by its column's title from the first row. The
+// table is wrapped so the stacking follows the column's width (styles.css, .table-wrap).
+function prepareTables(container) {
+  container.querySelectorAll("table").forEach((table) => {
+    const rows = [...table.rows];
+    if (rows.length < 2 || table.classList.contains("stack-table")) return;
+    const textHeavy = [...table.querySelectorAll("td, th")].some((cell) => cell.textContent.trim().length > 60);
+    if (!textHeavy) return;
+    const head = rows[0];
+    // Labels are CSS content, so formulas in them go in plain form: 熔点\(\mathrm{/}\)℃ → 熔点/℃.
+    const labels = [...head.cells].map((cell) => latexToPlainText(cell.textContent).replace(/\s+/g, " ").trim());
+    table.classList.add("stack-table");
+    head.classList.add("table-head");
+    const wrap = document.createElement("div");
+    wrap.className = "table-wrap";
+    table.before(wrap);
+    wrap.appendChild(table);
+    rows.slice(1).forEach((row) => {
+      if (row.cells.length !== labels.length) return;
+      [...row.cells].forEach((cell, index) => {
+        if (labels[index]) cell.dataset.label = labels[index];
+      });
+    });
+  });
 }
 
 // Formulas are LaTeX in \( … \) (inline) or \[ … \] (display), typeset by the vendored MathJax.

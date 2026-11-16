@@ -988,6 +988,82 @@ textarea {
   border: 1px solid var(--line-strong);
   padding: 6px 10px;
   vertical-align: top;
+  /* "anywhere" (from .rich-block) would let columns shrink until words split letter by letter. */
+  overflow-wrap: break-word;
+}
+
+.rich-block td p,
+.rich-block th p {
+  margin: 0 0 4px;
+}
+
+.rich-block td > :last-child,
+.rich-block th > :last-child {
+  margin-bottom: 0;
+}
+
+.rich-block tr.table-head td,
+.rich-block tr.table-head th {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+.rich-block table.stack-table td:first-child {
+  font-weight: 600;
+}
+
+.table-wrap {
+  container-type: inline-size;
+}
+
+@container (max-width: 600px) {
+  .rich-block table.stack-table,
+  .rich-block table.stack-table tbody,
+  .rich-block table.stack-table tr,
+  .rich-block table.stack-table td,
+  .rich-block table.stack-table th {
+    display: block;
+    width: auto;
+  }
+
+  .rich-block table.stack-table {
+    overflow: visible;
+  }
+
+  .rich-block table.stack-table tr.table-head {
+    display: none;
+  }
+
+  .rich-block table.stack-table tr {
+    margin-bottom: 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+
+  .rich-block table.stack-table td,
+  .rich-block table.stack-table th {
+    border: 0;
+    padding: 6px 12px;
+  }
+
+  .rich-block table.stack-table td + td {
+    border-top: 1px solid var(--line);
+  }
+
+  .rich-block table.stack-table td:first-child {
+    background: var(--surface-2);
+  }
+
+  .rich-block table.stack-table td[data-label]:not(:first-child)::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 2px;
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
 }
 
 .rich-block img {
